@@ -10,8 +10,10 @@
 
   var COLORES = (window.IDEALISTA_ZONAS_COLORES) || {
     bien: { relleno: "#16a34a", borde: "#166534" },
-    mal:  { relleno: "#dc2626", borde: "#991b1b" },
-    duda: { relleno: "#9ca3af", borde: "#6b7280" }
+    duda: { relleno: "#9ca3af", borde: "#6b7280" },
+    regular: { relleno: "#f59e0b", borde: "#b45309" },
+    mal: { relleno: "#dc2626", borde: "#991b1b" },
+    muy_mal: { relleno: "#7f1d1d", borde: "#450a0a" }
   };
   var LS_CLAVE = "idealista_zonas_on";
   var mapaOverlays = new Map();   // google.maps.Map -> [overlays]
@@ -77,7 +79,7 @@
     mapaUrlDibujada.set(map, firma);
     var overlays = [];
     var grupos = gruposParaDibujar(url);
-    var nBien = 0, nMal = 0, nDuda = 0, on = encendido();
+    var on = encendido();
 
     grupos.forEach(function (grupo) {
       (grupo.zonas || []).forEach(function (zona) {
@@ -114,21 +116,34 @@
             overlay.setMap(on ? map : null);
             overlay.__izVisible = on;
             overlays.push(overlay);
-            if (zona.veredicto === "bien") nBien++;
-            else if (zona.veredicto === "mal") nMal++;
-            else nDuda++;
           }
         } catch (e) { /* zona concreta rota: seguimos */ }
       });
     });
 
     mapaOverlays.set(map, overlays);
-    actualizarBoton(map, on, nBien, nMal, nDuda);
+    actualizarBoton(map, on);
   }
 
   // ---------------------------------------------------------------- botón
 
-  function actualizarBoton(map, on, nBien, nMal, nDuda) {
+  // resumen tipo "38 verdes · 12 mal · 55 regular · 80 grises" (solo no-cero)
+  function resumen() {
+    var partes = [];
+    var c = { bien: [0, "verdes"], muy_mal: [0, "muy mal"], mal: [0, "mal"],
+              regular: [0, "regular"], duda: [0, "grises"] };
+    gruposParaDibujar(location.href).forEach(function (g) {
+      (g.zonas || []).forEach(function (z) {
+        if (c[z.veredicto]) c[z.veredicto][0]++;
+      });
+    });
+    Object.keys(c).forEach(function (k) {
+      if (c[k][0]) partes.push(c[k][0] + " " + c[k][1]);
+    });
+    return partes.length ? partes.join(" · ") : "sin datos";
+  }
+
+  function actualizarBoton(map, on) {
     var btn = mapaBotones.get(map);
     if (!btn) {
       btn = document.createElement("div");
@@ -145,25 +160,15 @@
           o.__izVisible = nuevo;
           o.setMap(nuevo ? map : null);
         });
-        // recalcular contadores para el texto
-        var bien = 0, mal = 0, duda = 0;
-        gruposParaDibujar(location.href).forEach(function (g) {
-          (g.zonas || []).forEach(function (z) {
-            if (z.veredicto === "bien") bien++;
-            else if (z.veredicto === "mal") mal++;
-            else duda++;
-          });
-        });
-        actualizarBoton(map, nuevo, bien, mal, duda);
+        // refrescar el resumen del botón
+        actualizarBoton(map, nuevo);
       });
       mapaBotones.set(map, btn);
       try {
         (map.getDiv() || document.body).appendChild(btn);
       } catch (e) { document.body && document.body.appendChild(btn); }
     }
-    btn.textContent = on
-      ? "✔ Zonas ON · " + nBien + " verdes · " + nMal + " rojas · " + nDuda + " grises"
-      : "✖ Zonas OFF";
+    btn.textContent = on ? ("✔ Zonas ON · " + resumen()) : "✖ Zonas OFF";
     btn.style.color = on ? "#111" : "#888";
     if (!window.IDEALISTA_ZONAS) {
       btn.textContent = "⚠ Sin datos: copia zonas.js.ejemplo a zonas.js (ver README)";

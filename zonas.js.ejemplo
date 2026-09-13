@@ -7,7 +7,7 @@
 //     cd herramientas && python3 generar_zonas.py
 //     (ver README.md)
 //
-//   veredicto: "bien" -> verde   |   "mal" -> rojo   |   "duda" -> gris
+//   veredicto: "bien" | "regular" | "mal" | "muy_mal" | "duda"
 //   tipo "punto":    lat, lng + radio_km (círculo)  <- lo más fácil
 //   tipo "poligono": puntos = [[lat, lng], ...]     <- contorno exacto
 //
@@ -17,10 +17,13 @@
 (function () {
   "use strict";
 
+  // Escala: bien -> regular -> mal -> muy_mal; duda (gris) = sin evidencia
   window.IDEALISTA_ZONAS_COLORES = {
-    bien: { relleno: "#16a34a", borde: "#166534" },
-    mal:  { relleno: "#dc2626", borde: "#991b1b" },
-    duda: { relleno: "#9ca3af", borde: "#6b7280" }
+    bien:     { relleno: "#16a34a", borde: "#166534" },  // verde
+    regular:  { relleno: "#f59e0b", borde: "#b45309" },  // naranja
+    mal:      { relleno: "#dc2626", borde: "#991b1b" },  // rojo
+    muy_mal:  { relleno: "#7f1d1d", borde: "#450a0a" },  // granate
+    duda:     { relleno: "#9ca3af", borde: "#6b7280" }   // gris
   };
 
   // claves = trozos de URL de idealista en los que se pintan estas zonas.

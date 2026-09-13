@@ -142,6 +142,8 @@ PROVINCIAS = [
 
 ZONAS_VERDES = {}
 ZONAS_ROJOS = {}
+ZONAS_REGULARES = {}
+ZONAS_MUY_MAL = {}
 
 # =========================================================================
 # 3) ZONAS_EXTRA (opcional) — puntos manuales por provincia, para zonas que no
@@ -178,14 +180,21 @@ def normaliza(s):
     return re.sub(r"\s+", " ", s).strip()
 
 def es_veredicto(clave_prov, nombre):
-    """bien (verde) / mal (rojo) / duda (gris, el default ante la duda)."""
+    """bien (verde) / muy_mal (granate) / mal (rojo) / regular (naranja) /
+    duda (gris, el default ante la duda)."""
     n = normaliza(nombre)
     if n in {normaliza(x) for x in ZONAS_VERDES.get(clave_prov, [])}:
         VERDES_MATCH.add((clave_prov, n))
         return "bien"
+    if n in {normaliza(x) for x in ZONAS_MUY_MAL.get(clave_prov, [])}:
+        ROJOS_MATCH.add((clave_prov, n))
+        return "muy_mal"
     if n in {normaliza(x) for x in ZONAS_ROJOS.get(clave_prov, [])}:
         ROJOS_MATCH.add((clave_prov, n))
         return "mal"
+    if n in {normaliza(x) for x in ZONAS_REGULARES.get(clave_prov, [])}:
+        ROJOS_MATCH.add((clave_prov, n))
+        return "regular"
     return "duda"
 
 def avisar_sin_coincidencia():
@@ -210,6 +219,10 @@ def cargar_config_local():
         ZONAS_VERDES.setdefault(clave, []).extend(nombres)
     for clave, nombres in cfg.get("rojos", {}).items():
         ZONAS_ROJOS.setdefault(clave, []).extend(nombres)
+    for clave, nombres in cfg.get("regulares", {}).items():
+        ZONAS_REGULARES.setdefault(clave, []).extend(nombres)
+    for clave, nombres in cfg.get("muy_mal", {}).items():
+        ZONAS_MUY_MAL.setdefault(clave, []).extend(nombres)
     extras = cfg.get("extras", {})
     for clave, zs in extras.items():
         ZONAS_EXTRA.setdefault(clave, []).extend(zs)
@@ -644,7 +657,9 @@ def main():
 
   window.IDEALISTA_ZONAS_COLORES = {{
     bien: {{ relleno: "#16a34a", borde: "#166534" }},
+    regular: {{ relleno: "#f59e0b", borde: "#b45309" }},
     mal:  {{ relleno: "#dc2626", borde: "#991b1b" }},
+    muy_mal: {{ relleno: "#7f1d1d", borde: "#450a0a" }},
     duda: {{ relleno: "#9ca3af", borde: "#6b7280" }}
   }};
 

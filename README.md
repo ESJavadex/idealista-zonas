@@ -145,12 +145,17 @@ enciende/apaga sin recargar.
 
 ## 🎨 Verde, rojo y gris (duda)
 
-Las zonas pueden tener tres veredictos:
+Las zonas pueden tener cinco veredictos (escala de severidad):
 
-- **verde** — buena zona, con evidencia
-- **rojo** — mala zona, con evidencia (p. ej. criminalidad muy superior a la media)
-- **gris** — duda: evidencia insuficiente o contradictoria. **Es el color por
-  defecto** de cualquier zona que no esté en las listas.
+- 🟢 **verde** (`bien`) — buena zona, con evidencia
+- 🟠 **naranja** (`regular`) — zona normal/transición, sin señales fuertes
+- 🔴 **rojo** (`mal`) — mala zona, con evidencia (p. ej. criminalidad muy superior a la media)
+- 🟤 **granate** (`muy_mal`) — la peor, con evidencia sólida y convergente
+- ⚪ **gris** (`duda`) — duda: evidencia insuficiente o contradictoria. **Es el
+  color por defecto** de cualquier zona que no esté en las listas.
+
+En `config.local.json` las listas correspondientes son `verdes`, `regulares`,
+`rojos` y `muy_mal`.
 
 Rellena `verdes` y `rojos` en `config.local.json` solo con datos
 (renta media del INE, delitos por habitante, prensa local recurrente…).
