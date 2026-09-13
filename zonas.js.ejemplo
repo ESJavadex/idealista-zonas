@@ -1,0 +1,38 @@
+// =========================================================================
+// zonas.js — PLANTILLA. Cópiala a "zonas.js" y rellénala:
+//
+//     cp zonas.js.ejemplo zonas.js
+//
+// ...o genera los datos automáticamente (barrios + municipios reales):
+//     cd herramientas && python3 generar_zonas.py
+//     (ver README.md)
+//
+//   veredicto: "bien" -> verde   |   "mal" -> rojo
+//   tipo "punto":    lat, lng + radio_km (círculo)  <- lo más fácil
+//   tipo "poligono": puntos = [[lat, lng], ...]     <- contorno exacto
+//
+// Coordenadas: clic derecho en Google Maps → "copiar coordenadas".
+// =========================================================================
+
+(function () {
+  "use strict";
+
+  window.IDEALISTA_ZONAS_COLORES = {
+    bien: { relleno: "#16a34a", borde: "#166534" },
+    mal:  { relleno: "#dc2626", borde: "#991b1b" }
+  };
+
+  // claves = trozos de URL de idealista en los que se pintan estas zonas.
+  // En URLs que no casen con ninguna clave (p. ej. /point/lat/lng/zoom/…)
+  // la extensión pinta TODAS las zonas, para estar siempre activa.
+  window.IDEALISTA_ZONAS = [
+    {
+      claves: ["mi-provincia"],
+      zonas: [
+        { nombre: "Barrio de ejemplo", veredicto: "bien", tipo: "punto", lat: 40.4168, lng: -3.7038, radio_km: 1.0 },
+        { nombre: "Zona a evitar",     veredicto: "mal",  tipo: "punto", lat: 40.4250, lng: -3.6900, radio_km: 1.5 }
+      ]
+    }
+    // ^ añade más grupos (uno por provincia) según necesites
+  ];
+})();

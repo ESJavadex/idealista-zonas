@@ -1,0 +1,7 @@
+.DS_Store
+
+# Datos personales / generados: cada uno tiene los suyos
+zonas.js
+herramientas/config.local.json
+data-src/
+docs/
