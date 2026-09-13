@@ -171,10 +171,10 @@ ROJOS_MATCH = set()
 # ---------------------------------------------------------------- utilidades
 
 def normaliza(s):
-    """minúsculas, sin acentos, sin apóstrofes, guiones -> espacios"""
+    """minúsculas, sin acentos, sin apóstrofes, guiones y barras -> espacios"""
     s = unicodedata.normalize("NFD", s or "")
     s = "".join(c for c in s if unicodedata.category(c) != "Mn")
-    s = s.lower().replace("'", "").replace("’", "").replace("-", " ")
+    s = s.lower().replace("'", "").replace("’", "").replace("-", " ").replace("/", " ")
     return re.sub(r"\s+", " ", s).strip()
 
 def es_veredicto(clave_prov, nombre):
@@ -333,8 +333,54 @@ def anillos_exteriores(geom):
 
 # ---------------------------------------------------------------- fuentes
 
+def _poligono_principal_de_relacion(rel, eps=0.0006, max_pts=40):
+    """De una relación OSM (con geometry en sus members, out geom) extrae el
+    anillo exterior principal simplificado, como lista de (lat,lng)."""
+    ways = [[(p["lat"], p["lon"]) for p in m["geometry"]]
+            for m in rel.get("members", [])
+            if m.get("type") == "way" and m.get("role") in ("outer", "")
+            and m.get("geometry")]
+    if not ways:
+        return None
+    anillos = [a for a in _anillos_desde_ways(ways) if len(a) >= 4]
+    if not anillos:
+        return None
+    anillo = max(anillos, key=_area_anillo)  # contorno principal (ignora huecos)
+    if anillo[0] == anillo[-1]:
+        anillo = anillo[:-1]
+    pts = simplificar(anillo, eps, max_pts)
+    return pts if len(pts) >= 3 else None
+
+def _indice_munis_osm(prov):
+    """Límites municipales (admin_level=8) de la provincia, indexados por
+    nombre normalizado. Una sola query cacheada por provincia."""
+    destino = os.path.join(DATA_DIR, f"munis_osm_{normaliza(prov['nombre'])}.json")
+    query = (f"[out:json][timeout:180];area({prov['area_id']})->.prov;"
+             f'relation(area.prov)[boundary="administrative"][admin_level=8];'
+             f"out geom;")
+    overpass(query, destino)
+    with open(destino) as f:
+        data = json.load(f)
+    indice = {}
+    for rel in data.get("elements", []):
+        tags = rel.get("tags", {})
+        pts = _poligono_principal_de_relacion(rel, 0.0015, 40)
+        if not pts:
+            continue
+        nombres = [tags.get("name", "")]
+        for campo in ("alt_name", "name:es", "official_name", "short_name"):
+            if tags.get(campo):
+                nombres += str(tags[campo]).split("/")
+        for n in nombres:
+            n = n.strip()
+            if n:
+                indice.setdefault(normaliza(n), pts)
+    return indice
+
 def municipios(prov):
-    """Círculos: city/town siempre + village con población mínima (si se configura)."""
+    """Municipios de la provincia como POLÍGONOS (límites OSM admin_level=8);
+    círculo de reserva si algún municipio no tiene polígono mapeado."""
+    indice_pol = _indice_munis_osm(prov)
     destino = os.path.join(DATA_DIR, f"municipios_{normaliza(prov['nombre'])}.json")
     query = (f"[out:json][timeout:120];area({prov['area_id']})->.prov;"
              f'node(area.prov)[place~"^(city|town|village)$"];out body;')
@@ -345,6 +391,7 @@ def municipios(prov):
     incluir = {normaliza(x) for x in prov.get("incluir_munis", [])}
     min_pop = prov.get("pueblos_min_pop", 0)
     zonas = []
+    n_poly = 0
     for el in data.get("elements", []):
         tags = el.get("tags", {})
         nombre = (tags.get("name") or "").strip()
@@ -357,15 +404,28 @@ def municipios(prov):
         if tags.get("place") == "village" and pop < min_pop \
                 and normaliza(nombre) not in incluir:
             continue  # pueblo pequeño: fuera
-        radio = 2.6 if pop > 50000 else 2.0 if pop > 20000 else 1.7 if pop > 10000 else 1.2
-        zonas.append({
-            "nombre": titulo(nombre),
-            "veredicto": es_veredicto(prov["claves"][0], nombre),
-            "tipo": "punto",
-            "lat": round(el["lat"], 4),
-            "lng": round(el["lon"], 4),
-            "radio_km": radio,
-        })
+        veredicto = es_veredicto(prov["claves"][0], nombre)
+        pts = indice_pol.get(normaliza(nombre))
+        if pts:
+            n_poly += 1
+            zonas.append({
+                "nombre": titulo(nombre),
+                "veredicto": veredicto,
+                "tipo": "poligono",
+                "puntos": [[round(a, 5), round(b, 5)] for a, b in pts],
+            })
+        else:
+            # sin contorno en OSM: círculo como reserva
+            radio = 2.6 if pop > 50000 else 2.0 if pop > 20000 else 1.7 if pop > 10000 else 1.2
+            zonas.append({
+                "nombre": titulo(nombre),
+                "veredicto": veredicto,
+                "tipo": "punto",
+                "lat": round(el["lat"], 4),
+                "lng": round(el["lon"], 4),
+                "radio_km": radio,
+            })
+    print(f"  ({n_poly}/{len(zonas)} municipios con polígono)")
     return zonas
 
 def barrios_poligonos(prov, ciudad):
