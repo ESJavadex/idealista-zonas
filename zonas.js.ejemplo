@@ -7,7 +7,7 @@
 //     cd herramientas && python3 generar_zonas.py
 //     (ver README.md)
 //
-//   veredicto: "bien" -> verde   |   "mal" -> rojo
+//   veredicto: "bien" -> verde   |   "mal" -> rojo   |   "duda" -> gris
 //   tipo "punto":    lat, lng + radio_km (círculo)  <- lo más fácil
 //   tipo "poligono": puntos = [[lat, lng], ...]     <- contorno exacto
 //
@@ -19,7 +19,8 @@
 
   window.IDEALISTA_ZONAS_COLORES = {
     bien: { relleno: "#16a34a", borde: "#166534" },
-    mal:  { relleno: "#dc2626", borde: "#991b1b" }
+    mal:  { relleno: "#dc2626", borde: "#991b1b" },
+    duda: { relleno: "#9ca3af", borde: "#6b7280" }
   };
 
   // claves = trozos de URL de idealista en los que se pintan estas zonas.
@@ -30,7 +31,8 @@
       claves: ["mi-provincia"],
       zonas: [
         { nombre: "Barrio de ejemplo", veredicto: "bien", tipo: "punto", lat: 40.4168, lng: -3.7038, radio_km: 1.0 },
-        { nombre: "Zona a evitar",     veredicto: "mal",  tipo: "punto", lat: 40.4250, lng: -3.6900, radio_km: 1.5 }
+        { nombre: "Zona a evitar",     veredicto: "mal",  tipo: "punto", lat: 40.4250, lng: -3.6900, radio_km: 1.5 },
+        { nombre: "Sin datos",         veredicto: "duda", tipo: "punto", lat: 40.4300, lng: -3.7100, radio_km: 1.2 }
       ]
     }
     // ^ añade más grupos (uno por provincia) según necesites

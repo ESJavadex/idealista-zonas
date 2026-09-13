@@ -101,7 +101,7 @@ Tú solo decides qué va en verde.
 { nombre: "Ruzafa", veredicto: "bien", tipo: "poligono", puntos: [[39.46,-0.37], ...] },
 ```
 
-- `veredicto: "bien"` → verde · `veredicto: "mal"` → rojo
+- `veredicto: "bien"` → verde · `"mal"` → rojo · `"duda"` → gris
 - `radio_km` → tamaño del círculo
 - Tras editar: guarda y pulsa el botón **recargar ↻** de la extensión en
   `chrome://extensions` + F5 en idealista.
@@ -141,6 +141,21 @@ enciende/apaga sin recargar.
 | `herramientas/generar_zonas.py` | Genera `zonas.js` desde fuentes oficiales |
 | `herramientas/config.local.json` | TUS veredictos (git-ignorado) |
 | `data-src/` | Caché de los GeoJSON descargados (git-ignorado) |
+| `docs/skill-clasificar-zonas.md` | Metodología para clasificar zonas con evidencia (renta, criminalidad, prensa…) |
+
+## 🎨 Verde, rojo y gris (duda)
+
+Las zonas pueden tener tres veredictos:
+
+- **verde** — buena zona, con evidencia
+- **rojo** — mala zona, con evidencia (p. ej. criminalidad muy superior a la media)
+- **gris** — duda: evidencia insuficiente o contradictoria. **Es el color por
+  defecto** de cualquier zona que no esté en las listas.
+
+Rellena `verdes` y `rojos` en `config.local.json` solo con datos
+(renta media del INE, delitos por habitante, prensa local recurrente…).
+La metodología completa está en
+[`docs/skill-clasificar-zonas.md`](docs/skill-clasificar-zonas.md).
 
 ## ⚠️ Aviso
 

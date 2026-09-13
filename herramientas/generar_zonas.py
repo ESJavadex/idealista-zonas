@@ -79,23 +79,23 @@ PROVINCIAS = [
         "ciudad": {
             "nombre": "Valladolid",
             "area_id": 3600348849,
-            "centro": [41.652, -4.724],
-            "radio_centro_km": 12,   # sin límite práctico: el municipio es compacto
-            "incluir": ["El Pinarillo"],             # barrios lejanos que quieres ver
+            # Barrios de la capital como POLÍGONOS (relaciones OSM admin_level=9)
+            "poligonos_osm": True,
+            "puntos_osm": False,
         },
     },
     {
         "nombre": "Pontevedra",
         "claves": ["pontevedra-provincia", "pontevedra", "vigo"],
         "area_id": 3600348986,
-        "excluir_munis": [],                        # Vigo: círculo grande + barrios de detalle
+        "excluir_munis": ["Vigo"],                  # la ciudad sale por parroquias
         "pueblos_min_pop": 4000,
         "ciudad": {
             "nombre": "Vigo",
             "area_id": 3600341381,
-            "centro": [42.2328, -8.7226],
-            "radio_centro_km": 2,    # Vigo tiene cientos de lugares; centro urbano
-            "incluir": ["A Corredoura de Samil", "A Mariña", "O Vao", "Toralla"],
+            # Parroquias de Vigo como POLÍGONOS (relaciones OSM admin_level=9)
+            "poligonos_osm": True,
+            "puntos_osm": False,
         },
     },
     {
@@ -141,6 +141,7 @@ PROVINCIAS = [
 # =========================================================================
 
 ZONAS_VERDES = {}
+ZONAS_ROJOS = {}
 
 # =========================================================================
 # 3) ZONAS_EXTRA (opcional) — puntos manuales por provincia, para zonas que no
@@ -164,6 +165,7 @@ RADIOS_CIUDAD = {"suburb": 0.9, "quarter": 0.8, "neighbourhood": 0.6}
 PRIORIDAD_CIUDAD = {"suburb": 0, "quarter": 1, "neighbourhood": 2}
 
 VERDES_MATCH = set()  # nombres verdes ya encontrados (para avisar de typos)
+ROJOS_MATCH = set()
 
 
 # ---------------------------------------------------------------- utilidades
@@ -175,31 +177,39 @@ def normaliza(s):
     s = s.lower().replace("'", "").replace("’", "").replace("-", " ")
     return re.sub(r"\s+", " ", s).strip()
 
-def es_verde(clave_prov, nombre):
-    verdes = {normaliza(n) for n in ZONAS_VERDES.get(clave_prov, [])}
-    coincide = normaliza(nombre) in verdes
-    if coincide:
-        VERDES_MATCH.add((clave_prov, normaliza(nombre)))
-    return coincide
+def es_veredicto(clave_prov, nombre):
+    """bien (verde) / mal (rojo) / duda (gris, el default ante la duda)."""
+    n = normaliza(nombre)
+    if n in {normaliza(x) for x in ZONAS_VERDES.get(clave_prov, [])}:
+        VERDES_MATCH.add((clave_prov, n))
+        return "bien"
+    if n in {normaliza(x) for x in ZONAS_ROJOS.get(clave_prov, [])}:
+        ROJOS_MATCH.add((clave_prov, n))
+        return "mal"
+    return "duda"
 
-def avisar_verdes_sin_coincidencia():
+def avisar_sin_coincidencia():
     for clave, nombres in ZONAS_VERDES.items():
-        verdes = {normaliza(n) for n in nombres}
-        usados = {n for (c, n) in VERDES_MATCH if c == clave}
-        faltan = verdes - usados
+        faltan = {normaliza(n) for n in nombres} - {n for (c, n) in VERDES_MATCH if c == clave}
         if faltan:
-            print(f"⚠ {clave}: estas zonas verdes no coinciden con ninguna zona "
+            print(f"⚠ {clave}: estas zonas VERDES no coinciden con ninguna zona "
+                  f"generada (¿typo?): {sorted(faltan)}")
+    for clave, nombres in ZONAS_ROJOS.items():
+        faltan = {normaliza(n) for n in nombres} - {n for (c, n) in ROJOS_MATCH if c == clave}
+        if faltan:
+            print(f"⚠ {clave}: estas zonas ROJAS no coinciden con ninguna zona "
                   f"generada (¿typo?): {sorted(faltan)}")
 
 def cargar_config_local():
-    """Fichero local (gitignored) con {"verdes": {...}, "extras": {...}}."""
+    """Fichero local (gitignored) con {"verdes": ..., "rojos": ..., "extras": ...}."""
     if not os.path.exists(CONFIG_LOCAL):
         return
     with open(CONFIG_LOCAL) as f:
         cfg = json.load(f)
-    verdes = cfg.get("verdes", {})
-    for clave, nombres in verdes.items():
+    for clave, nombres in cfg.get("verdes", {}).items():
         ZONAS_VERDES.setdefault(clave, []).extend(nombres)
+    for clave, nombres in cfg.get("rojos", {}).items():
+        ZONAS_ROJOS.setdefault(clave, []).extend(nombres)
     extras = cfg.get("extras", {})
     for clave, zs in extras.items():
         ZONAS_EXTRA.setdefault(clave, []).extend(zs)
@@ -350,7 +360,7 @@ def municipios(prov):
         radio = 2.6 if pop > 50000 else 2.0 if pop > 20000 else 1.7 if pop > 10000 else 1.2
         zonas.append({
             "nombre": titulo(nombre),
-            "veredicto": "bien" if es_verde(prov["claves"][0], nombre) else "mal",
+            "veredicto": es_veredicto(prov["claves"][0], nombre),
             "tipo": "punto",
             "lat": round(el["lat"], 4),
             "lng": round(el["lon"], 4),
@@ -381,7 +391,7 @@ def barrios_poligonos(prov, ciudad):
             continue
         zonas.append({
             "nombre": titulo(nombre),
-            "veredicto": "bien" if es_verde(prov["claves"][0], nombre) else "mal",
+            "veredicto": es_veredicto(prov["claves"][0], nombre),
             "tipo": "poligono",
             "puntos": [[round(a, 5), round(b, 5)] for a, b in pts],
         })
@@ -429,11 +439,82 @@ def barrios_puntos(prov, ciudad):
         vistos.add(clave)
         zonas.append({
             "nombre": titulo(nombre),
-            "veredicto": "bien" if es_verde(prov["claves"][0], nombre) else "mal",
+            "veredicto": es_veredicto(prov["claves"][0], nombre),
             "tipo": "punto",
             "lat": round(lat, 4),
             "lng": round(lon, 4),
             "radio_km": RADIOS_CIUDAD[lugar],
+        })
+    return zonas
+
+def _anillos_desde_ways(ways, eps=1e-7):
+    """Encadena ways (listas de puntos) que comparten extremos hasta formar anillos."""
+    eps2 = eps * eps
+    pendientes = [[tuple(p) for p in w] for w in ways]
+    anillos = []
+    while pendientes:
+        anillo = pendientes.pop(0)
+        while True:
+            ultimo = anillo[-1]
+            for i, w in enumerate(pendientes):
+                if distancia2(w[0], ultimo) <= eps2:
+                    anillo += w[1:]
+                    pendientes.pop(i)
+                    break
+                if distancia2(w[-1], ultimo) <= eps2:
+                    anillo += list(reversed(w))[1:]
+                    pendientes.pop(i)
+                    break
+            else:
+                break
+        anillos.append(anillo)
+    return anillos
+
+def _area_anillo(anillo):
+    s = 0.0
+    for i in range(len(anillo) - 1):
+        (x1, y1), (x2, y2) = anillo[i], anillo[i + 1]
+        s += x1 * y2 - x2 * y1
+    return abs(s) / 2
+
+def barrios_poligonos_osm(prov, ciudad):
+    """Polígonos de barrios/parroquias de la capital desde relaciones OSM
+    (boundary=administrative, admin_level 9/10). Config: ciudad.poligonos_osm."""
+    area = ciudad.get("area_id")
+    if not ciudad.get("poligonos_osm") or not area:
+        return []
+    destino = os.path.join(DATA_DIR, f"barrios_osm_{normaliza(ciudad['nombre'])}.json")
+    query = (f"[out:json][timeout:120];area({area})->.c;"
+             f'relation(area.c)[boundary="administrative"][admin_level~"^(9|10)$"];'
+             f"out geom;")
+    overpass(query, destino)
+    with open(destino) as f:
+        data = json.load(f)
+    zonas = []
+    for rel in data.get("elements", []):
+        nombre = (rel.get("tags", {}).get("name") or "").strip()
+        if not nombre:
+            continue
+        ways = [[(p["lat"], p["lon"]) for p in m["geometry"]]
+                for m in rel.get("members", [])
+                if m.get("type") == "way" and m.get("role") in ("outer", "")
+                and m.get("geometry")]
+        if not ways:
+            continue
+        anillos = [a for a in _anillos_desde_ways(ways) if len(a) >= 4]
+        if not anillos:
+            continue
+        anillo = max(anillos, key=_area_anillo)  # contorno principal (ignora huecos)
+        if anillo[0] == anillo[-1]:
+            anillo = anillo[:-1]
+        pts = simplificar(anillo, 0.0006, 40)
+        if len(pts) < 3:
+            continue
+        zonas.append({
+            "nombre": titulo(nombre),
+            "veredicto": es_veredicto(prov["claves"][0], nombre),
+            "tipo": "poligono",
+            "puntos": [[round(a, 5), round(b, 5)] for a, b in pts],
         })
     return zonas
 
@@ -464,7 +545,8 @@ def main():
         print(f"▶ {prov['nombre']}…", flush=True)
         ciudad = prov.get("ciudad") or {}
         zonas = (barrios_poligonos(prov, ciudad)
-                 + barrios_puntos(prov, ciudad)
+                 + barrios_poligonos_osm(prov, ciudad)
+                 + (barrios_puntos(prov, ciudad) if ciudad.get("puntos_osm", True) else [])
                  + municipios(prov)
                  + zonas_extra(prov))
         verdes = sum(1 for z in zonas if z["veredicto"] == "bien")
@@ -481,7 +563,7 @@ def main():
         )
         total += len(zonas)
 
-    avisar_verdes_sin_coincidencia()
+    avisar_sin_coincidencia()
 
     salida = f"""// =========================================================================
 // zonas.js — DATOS de la extensión Idealista Zonas
@@ -502,7 +584,8 @@ def main():
 
   window.IDEALISTA_ZONAS_COLORES = {{
     bien: {{ relleno: "#16a34a", borde: "#166534" }},
-    mal:  {{ relleno: "#dc2626", borde: "#991b1b" }}
+    mal:  {{ relleno: "#dc2626", borde: "#991b1b" }},
+    duda: {{ relleno: "#9ca3af", borde: "#6b7280" }}
   }};
 
   // claves = trozos de URL de idealista en los que se pintan estas zonas

@@ -10,7 +10,8 @@
 
   var COLORES = (window.IDEALISTA_ZONAS_COLORES) || {
     bien: { relleno: "#16a34a", borde: "#166534" },
-    mal:  { relleno: "#dc2626", borde: "#991b1b" }
+    mal:  { relleno: "#dc2626", borde: "#991b1b" },
+    duda: { relleno: "#9ca3af", borde: "#6b7280" }
   };
   var LS_CLAVE = "idealista_zonas_on";
   var mapaOverlays = new Map();   // google.maps.Map -> [overlays]
@@ -76,7 +77,7 @@
     mapaUrlDibujada.set(map, firma);
     var overlays = [];
     var grupos = gruposParaDibujar(url);
-    var nBien = 0, nMal = 0, on = encendido();
+    var nBien = 0, nMal = 0, nDuda = 0, on = encendido();
 
     grupos.forEach(function (grupo) {
       (grupo.zonas || []).forEach(function (zona) {
@@ -113,19 +114,21 @@
             overlay.setMap(on ? map : null);
             overlay.__izVisible = on;
             overlays.push(overlay);
-            if (zona.veredicto === "bien") nBien++; else nMal++;
+            if (zona.veredicto === "bien") nBien++;
+            else if (zona.veredicto === "mal") nMal++;
+            else nDuda++;
           }
         } catch (e) { /* zona concreta rota: seguimos */ }
       });
     });
 
     mapaOverlays.set(map, overlays);
-    actualizarBoton(map, on, nBien, nMal);
+    actualizarBoton(map, on, nBien, nMal, nDuda);
   }
 
   // ---------------------------------------------------------------- botón
 
-  function actualizarBoton(map, on, nBien, nMal) {
+  function actualizarBoton(map, on, nBien, nMal, nDuda) {
     var btn = mapaBotones.get(map);
     if (!btn) {
       btn = document.createElement("div");
@@ -143,13 +146,15 @@
           o.setMap(nuevo ? map : null);
         });
         // recalcular contadores para el texto
-        var bien = 0, mal = 0;
+        var bien = 0, mal = 0, duda = 0;
         gruposParaDibujar(location.href).forEach(function (g) {
           (g.zonas || []).forEach(function (z) {
-            if (z.veredicto === "bien") bien++; else mal++;
+            if (z.veredicto === "bien") bien++;
+            else if (z.veredicto === "mal") mal++;
+            else duda++;
           });
         });
-        actualizarBoton(map, nuevo, bien, mal);
+        actualizarBoton(map, nuevo, bien, mal, duda);
       });
       mapaBotones.set(map, btn);
       try {
@@ -157,7 +162,7 @@
       } catch (e) { document.body && document.body.appendChild(btn); }
     }
     btn.textContent = on
-      ? "✔ Zonas ON · " + nBien + " verdes · " + nMal + " rojas"
+      ? "✔ Zonas ON · " + nBien + " verdes · " + nMal + " rojas · " + nDuda + " grises"
       : "✖ Zonas OFF";
     btn.style.color = on ? "#111" : "#888";
     if (!window.IDEALISTA_ZONAS) {
