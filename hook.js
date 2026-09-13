@@ -16,6 +16,17 @@
     muy_mal: { relleno: "#7f1d1d", borde: "#450a0a" }
   };
   var LS_CLAVE = "idealista_zonas_on";
+  var LS_DEMO = "idealista_zonas_demo";   // capa demografía (por defecto OFF)
+  var LS_ORIGEN = "idealista_zonas_origen"; // origen seleccionado (default: ext)
+  var ORIGENES = [["ext", "Extranjeros"], ["eu", "Europa"], ["af", "África"],
+                  ["am", "América"], ["as", "Asia"], ["oc", "Oceanía"]];
+  // paleta secuencial neutra (azules) por % del colectivo sobre población total
+  var TRAMOS_DEMO = [
+    [5,   "#dbeafe", "#93c5fd"],
+    [15,  "#93c5fd", "#3b82f6"],
+    [30,  "#3b82f6", "#1d4ed8"],
+    [1/0, "#1e40af", "#172554"]
+  ];
   var mapaOverlays = new Map();   // google.maps.Map -> [overlays]
   var mapaBotones = new Map();    // google.maps.Map -> botón
   var mapaUrlDibujada = new Map(); // google.maps.Map -> última URL dibujada
@@ -28,6 +39,40 @@
   }
   function guardar(on) {
     try { window.localStorage.setItem(LS_CLAVE, on ? "1" : "0"); } catch (e) {}
+  }
+
+  function demoActivo() {
+    var v = null;
+    try { v = window.localStorage.getItem(LS_DEMO); } catch (e) {}
+    return v === "1";
+  }
+  function guardarDemo(on) {
+    try { window.localStorage.setItem(LS_DEMO, on ? "1" : "0"); } catch (e) {}
+  }
+  function origenSel() {
+    var v = null;
+    try { v = window.localStorage.getItem(LS_ORIGEN); } catch (e) {}
+    return v || "ext";
+  }
+  function guardarOrigen(o) {
+    try { window.localStorage.setItem(LS_ORIGEN, o); } catch (e) {}
+  }
+  function hayDemo() {
+    return (window.IDEALISTA_ZONAS || []).some(function (g) {
+      return (g.zonas || []).some(function (z) { return !!z.demo; });
+    });
+  }
+  // dato demográfico del origen para la zona: [pct, relleno, borde]
+  function datosDemo(zona) {
+    var d = zona.demo;
+    if (!d || !d.t) return null;
+    var o = origenSel();
+    var n = d[o === "ext" ? "e" : o] || 0;
+    var pct = 100 * n / d.t;
+    for (var i = 0; i < TRAMOS_DEMO.length; i++) {
+      if (pct < TRAMOS_DEMO[i][0]) return [pct, TRAMOS_DEMO[i][1], TRAMOS_DEMO[i][2]];
+    }
+    return [pct, TRAMOS_DEMO[3][1], TRAMOS_DEMO[3][2]];
   }
 
   // ---------------------------------------------------------------- dibujar
@@ -60,6 +105,11 @@
   }
 
   function colorDe(zona, tipo) {
+    if (demoActivo()) {
+      var d = datosDemo(zona);
+      if (!d) return tipo === "borde" ? "#cbd5e1" : "#f1f5f9"; // sin dato municipal
+      return tipo === "borde" ? d[2] : d[1];
+    }
     var c = COLORES[zona.veredicto] || COLORES.mal;
     return tipo === "borde" ? c.borde : c.relleno;
   }
@@ -146,12 +196,13 @@
   function actualizarBoton(map, on) {
     var btn = mapaBotones.get(map);
     if (!btn) {
-      btn = document.createElement("div");
+      var caja = document.createElement("div");
+      caja.style.cssText = "position:absolute;bottom:36px;left:10px;z-index:2147483646;";
+      // fila 1: botón principal on/off
       btn.style.cssText =
-        "position:absolute;bottom:36px;left:10px;z-index:2147483646;" +
         "background:#fff;border-radius:18px;box-shadow:0 1px 4px rgba(0,0,0,.35);" +
         "padding:6px 14px;font:600 13px system-ui,sans-serif;cursor:pointer;" +
-        "user-select:none;white-space:nowrap;color:#111;";
+        "user-select:none;white-space:nowrap;color:#111;display:inline-block;";
       btn.addEventListener("click", function () {
         var nuevo = !encendido();
         guardar(nuevo);
@@ -160,20 +211,63 @@
           o.__izVisible = nuevo;
           o.setMap(nuevo ? map : null);
         });
-        // refrescar el resumen del botón
         actualizarBoton(map, nuevo);
       });
+      caja.appendChild(btn);
+      // fila 2: capa demografía (solo si zonas.js lleva datos)
+      if (hayDemo()) {
+        var fila = document.createElement("div");
+        fila.style.cssText = "margin-top:6px;background:#fff;border-radius:14px;" +
+          "box-shadow:0 1px 4px rgba(0,0,0,.25);padding:4px 10px;font:12px system-ui,sans-serif;" +
+          "white-space:nowrap;color:#334155;display:flex;align-items:center;gap:6px;";
+        var chk = document.createElement("input");
+        chk.type = "checkbox"; chk.id = "iz-demo"; chk.checked = demoActivo();
+        chk.style.cursor = "pointer";
+        chk.addEventListener("change", function () {
+          guardarDemo(chk.checked); repintarTodo();
+        });
+        var lbl = document.createElement("label");
+        lbl.htmlFor = "iz-demo"; lbl.style.cursor = "pointer";
+        lbl.textContent = "Demografía";
+        lbl.title = "% del colectivo sobre la población del municipio (INE, padrón 2025). " +
+          "Tramos: <5%, 5–15%, 15–30%, 30%+. Gris claro = sin dato. No afecta a los colores de seguridad.";
+        var sel = document.createElement("select");
+        sel.style.cssText = "font:12px system-ui,sans-serif;border:1px solid #cbd5e1;border-radius:6px;padding:1px;";
+        ORIGENES.forEach(function (o) {
+          var op = document.createElement("option");
+          op.value = o[0]; op.textContent = o[1];
+          sel.appendChild(op);
+        });
+        sel.value = origenSel();
+        sel.addEventListener("change", function () {
+          guardarOrigen(sel.value); repintarTodo();
+        });
+        fila.appendChild(chk); fila.appendChild(lbl); fila.appendChild(sel);
+        caja.appendChild(fila);
+        btn.__izFilaDemo = fila;
+      }
       mapaBotones.set(map, btn);
       try {
-        (map.getDiv() || document.body).appendChild(btn);
-      } catch (e) { document.body && document.body.appendChild(btn); }
+        (map.getDiv() || document.body).appendChild(caja);
+      } catch (e) { document.body && document.body.appendChild(caja); }
+      btn.__izCaja = caja;
     }
-    btn.textContent = on ? ("✔ Zonas ON · " + resumen()) : "✖ Zonas OFF";
+    var demo = demoActivo();
+    var origen = (ORIGENES.find(function (o) { return o[0] === origenSel(); }) || ["ext", "Extranjeros"])[1];
+    btn.textContent = !on ? "✖ Zonas OFF"
+      : (demo ? ("📊 Demografía: " + origen) : ("✔ Zonas ON · " + resumen()));
     btn.style.color = on ? "#111" : "#888";
+    if (btn.__izFilaDemo) btn.__izFilaDemo.style.display = on ? "" : "none";
     if (!window.IDEALISTA_ZONAS) {
       btn.textContent = "⚠ Sin datos: copia zonas.js.ejemplo a zonas.js (ver README)";
       btn.style.color = "#b45309";
     }
+  }
+
+  function repintarTodo() {
+    window.__izMapas.forEach(function (m) {
+      try { mapaUrlDibujada.set(m, null); pintarEn(m); } catch (e) {}
+    });
   }
 
   // ---------------------------------------------------------------- captura

@@ -599,15 +599,113 @@ def zonas_extra(prov):
     extras = ZONAS_EXTRA.get(prov["claves"][0], [])
     return [dict(e, tipo="punto") for e in extras]
 
+# ------------------------------------------------------------- demografía
+
+# Población por municipio, sexo y país de nacionalidad (INE, tabla 66323).
+# Se descarga UNA VEZ (CSV grande ~550 MB), se filtra y se cachea en
+# data-src/demo_municipios_2025.json. Es DATO CONTEXTUAL: nunca alimenta
+# el veredicto de peligrosidad, solo la capa opcional "Demografía".
+DEMO_URL = "https://www.ine.es/jaxiT3/files/t/csv_bd/66323.csv"
+DEMO_CSV = os.path.join(DATA_DIR, "ine_66323_nacionalidad.csv")
+DEMO_CACHE = os.path.join(DATA_DIR, "demo_municipios_2025.json")
+DEMO_PROVINCIAS = {"46", "12", "47", "36"}  # Valencia, Castellón, Valladolid, Pontevedra
+
+_PAISES_POR_CONTINENTE = {
+    "eu": {"Alemania", "Bélgica", "Bulgaria", "Dinamarca", "Finlandia", "Francia",
+           "Irlanda", "Italia", "Lituania", "Noruega", "Países Bajos", "Polonia",
+           "Portugal", "Reino Unido", "Suecia", "Suiza", "Rumanía", "Rusia",
+           "Ucrania", "Moldavia", "Otros países de Europa",
+           "Otros países de la Unión Europea"},
+    "af": {"Argelia", "Gambia", "Ghana", "Guinea", "Guinea Ecuatorial", "Mali",
+           "Marruecos", "Mauritania", "Nigeria", "Senegal", "Otros países de África"},
+    "am": {"Argentina", "Bolivia", "Brasil", "Canadá", "Chile", "Colombia", "Cuba",
+           "Ecuador", "Estados Unidos de América", "Honduras", "México", "Nicaragua",
+           "Paraguay", "Perú", "República Dominicana",
+           "Otro país de Centro América y Caribe", "Otros países de Sudamérica"},
+    "as": {"Bangladesh", "China", "Filipinas", "India", "Pakistán",
+           "Otros países de Asia"},
+    "oc": {"Oceanía"},
+}
+
+def _demo_num(s):
+    try:
+        return int(s.strip().replace(".", "").replace(",", "") or 0)
+    except ValueError:
+        return 0
+
+def cargar_demo():
+    """{cod_municipio: {n, p, t, e, eu, af, am, as, oc}} del padrón INE 2025.
+    Devuelve {} si no se puede obtener (la extensión funciona igual, sin capa)."""
+    if os.path.exists(DEMO_CACHE):
+        with open(DEMO_CACHE, encoding="utf-8") as f:
+            return json.load(f)
+    if not os.path.exists(DEMO_CSV):
+        print(f"  (descargando datos demográficos INE, ~550 MB — solo la primera vez)", flush=True)
+        try:
+            descargar(DEMO_URL, DEMO_CSV)
+        except Exception as e:
+            print(f"  ⚠ no se pudo descargar la demografía: {e}")
+            return {}
+    munis = {}
+    with open(DEMO_CSV, encoding="utf-8-sig", errors="replace") as f:
+        reader = csv.reader(f, delimiter="\t")
+        try:
+            next(reader)  # cabecera
+        except StopIteration:
+            return {}
+        for row in reader:
+            if len(row) < 7:
+                continue
+            prov, muni = row[1].strip(), row[2].strip()
+            if row[3].strip() != "Total" or row[5].strip() != "2025":
+                continue
+            if prov[:2] not in DEMO_PROVINCIAS or " " not in muni:
+                continue
+            cod = muni.split(" ")[0]
+            m = munis.setdefault(cod, {"nombre": muni[len(cod) + 1:],
+                                       "prov": prov[:2], "v": {}})
+            m["v"][row[4].strip()] = _demo_num(row[6])
+    demo = {}
+    for cod, m in munis.items():
+        v = m["v"]
+        t = v.get("Total", 0)
+        demo[cod] = {
+            "n": m["nombre"], "p": m["prov"], "t": t, "e": t - v.get("España", 0),
+            **{k: sum(v.get(p, 0) for p in paises) for k, paises in _PAISES_POR_CONTINENTE.items()},
+        }
+    with open(DEMO_CACHE, "w", encoding="utf-8") as f:
+        json.dump(demo, f, ensure_ascii=False)
+    return demo
+
+def _indice_demo(demo):
+    """nombre normalizado (y cada parte separada por /) -> demo."""
+    indice = {}
+    for d in demo.values():
+        for parte in d["n"].split("/"):
+            indice[normaliza(parte)] = d
+    return indice
+
+def _demo_de(nombre, indice):
+    for parte in re.split(r"\s*/\s*", nombre):
+        d = indice.get(normaliza(parte))
+        if d:
+            return d
+    return None
+
 # ---------------------------------------------------------------- salida
 
 def js_zona(z, indent="    "):
     n = json.dumps(z["nombre"], ensure_ascii=False)
+    demo = (f', demo: {{ t: {z["demo"]["t"]}, e: {z["demo"]["e"]}, '
+            f'eu: {z["demo"]["eu"]}, af: {z["demo"]["af"]}, '
+            f'am: {z["demo"]["am"]}, as: {z["demo"]["as"]}, oc: {z["demo"]["oc"]} }}'
+            if "demo" in z else "")
     if z["tipo"] == "poligono":
         pts = json.dumps(z["puntos"], ensure_ascii=False, separators=(",", ":"))
-        return f'{indent}{{ nombre: {n}, veredicto: "{z["veredicto"]}", tipo: "poligono", puntos: {pts} }}'
+        return (f'{indent}{{ nombre: {n}, veredicto: "{z["veredicto"]}", '
+                f'tipo: "poligono", puntos: {pts}{demo} }}')
     return (f'{indent}{{ nombre: {n}, veredicto: "{z["veredicto"]}", tipo: "punto", '
-            f'lat: {z["lat"]}, lng: {z["lng"]}, radio_km: {z["radio_km"]} }}')
+            f'lat: {z["lat"]}, lng: {z["lng"]}, radio_km: {z["radio_km"]}{demo} }}')
 
 def main():
     ap = argparse.ArgumentParser()
@@ -615,9 +713,14 @@ def main():
     args = ap.parse_args()
 
     cargar_config_local()
+    demo = cargar_demo()
+    indice_demo = _indice_demo(demo) if demo else {}
+    if demo:
+        print(f"  demografía INE 2025 cargada: {len(demo)} municipios", flush=True)
 
     grupos = []
     total = 0
+    con_demo = 0
     for prov in PROVINCIAS:
         print(f"▶ {prov['nombre']}…", flush=True)
         ciudad = prov.get("ciudad") or {}
@@ -626,6 +729,11 @@ def main():
                  + (barrios_puntos(prov, ciudad) if ciudad.get("puntos_osm", True) else [])
                  + municipios(prov)
                  + zonas_extra(prov))
+        for z in zonas:
+            d = _demo_de(z["nombre"], indice_demo) if indice_demo else None
+            if d:
+                z["demo"] = d
+                con_demo += 1
         verdes = sum(1 for z in zonas if z["veredicto"] == "bien")
         print(f"  {len(zonas)} zonas ({verdes} verdes)", flush=True)
         if not zonas:
@@ -639,6 +747,9 @@ def main():
             f"  }}"
         )
         total += len(zonas)
+
+    if demo:
+        print(f"  zonas con datos demográficos: {con_demo}/{total}", flush=True)
 
     avisar_sin_coincidencia()
 
