@@ -121,6 +121,7 @@ PROVINCIAS = [
             "area_id": 3600344858,
             "centro": [39.986, -0.0377],
             "radio_centro_km": 10,   # todo el municipio (La Devesa, Tossal de Vera…)
+            "solo_decididos": True,  # los ~50 "Grup" sin decidir no se pintan (se apilaban)
         },
     },
     # {
@@ -510,9 +511,12 @@ def barrios_puntos(prov, ciudad):
         if clave in vistos:
             continue
         vistos.add(clave)
+        veredicto = es_veredicto(prov["claves"][0], nombre)
+        if ciudad.get("solo_decididos") and veredicto == "duda":
+            continue
         zonas.append({
             "nombre": titulo(nombre),
-            "veredicto": es_veredicto(prov["claves"][0], nombre),
+            "veredicto": veredicto,
             "tipo": "punto",
             "lat": round(lat, 4),
             "lng": round(lon, 4),
