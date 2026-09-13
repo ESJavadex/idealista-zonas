@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Idealista Zonas (verde/rojo)",
-  "version": "1.1.0",
+  "version": "1.2.0",
   "description": "Pinta encima del mapa de idealista las zonas buenas (verde) y malas (rojo) según tu clasificación. Valencia y Castellón incluidas; editable para toda España.",
   "content_scripts": [
     {
