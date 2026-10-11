@@ -13,7 +13,7 @@
 (function () {
   "use strict";
 
-  var VERSION = "2.2.0"; // se canta en consola: así sabemos qué build corre de verdad
+  var VERSION = "2.2.1"; // se canta en consola: así sabemos qué build corre de verdad
 
   // ------------------------------------------------------------- ajustes
   var LS_CFG = "iz_pf_cfg";   // valores guardados
@@ -99,7 +99,7 @@
   // script corre dentro de ellos), y documentos de idealista sin la URL típica
   function esDetalle() {
     if (!/idealista\./.test(location.href) && !window.__IZ_TEST) return false; // solo idealista (o pruebas)
-    if (/idealista\.[a-z.]+\/(obra-nueva|inmueble)\//.test(location.href)) return true;
+    if (/\/(obra-nueva|inmueble)\/\d+/.test(location.pathname)) return true;
     try {
       var cuerpo = document.body && document.body.textContent || "";
       if (/pisos disponibles en venta/i.test(cuerpo)) return true;
@@ -822,6 +822,9 @@
       if (host.closest(".izpf-panel, .izpf-badge, .izpf-cell, #izb, .izk-ov, .izk-fab")) continue;
       // barra fija superior: ahí no cabe nada (y un panel ahí tapa la página)
       if (host.closest("#fixed-toolbar")) continue;
+      // extras con precio propio (garaje / trastero opcionales): no son la vivienda
+      var ctx = ((host.closest("li, span, p, div") || host).textContent || "");
+      if (ctx.length < 120 && /garaje|trastero|parking|aparcamiento|\bopc\.|opcional/i.test(ctx)) continue;
 
       // subir como mucho 4 niveles hasta que el bloque sea ~el precio solo
       var objetivo = host, subidas = 0;

@@ -23,7 +23,7 @@
   if (window.top !== window) return; // solo el documento principal
   if (!/idealista\./.test(location.hostname) && !window.__IZ_TEST) return; // __IZ_TEST: página de pruebas local
 
-  var VERSION = "2.2.0";
+  var VERSION = "2.2.1";
   var RE_DETALLE = /\/(obra-nueva|inmueble)\/(\d+)/;
 
   // ----------------------------------------------------------------- utils
@@ -150,6 +150,22 @@
     return { items: items, provincia: provincia };
   }
 
+  // páginas sin #headerMap (p. ej. /obra-nueva/<promo>/inmueble/<vivienda>/):
+  // zona y municipio del subtítulo ("Zona Alta, Puçol") y provincia oficial de
+  // CartoCiudad a partir de las coordenadas
+  function completarUbicacion(ub, coords) {
+    if (ub.provincia) return Promise.resolve(ub);
+    var menor = ((document.querySelector(".main-info__title-minor") || {}).textContent || "")
+      .split(",").map(function (x) { return x.replace(/\s+/g, " ").trim(); }).filter(Boolean);
+    return getJSON("https://www.cartociudad.es/geocoder/api/geocoder/reverseGeocode?" + qs({ lon: coords.lng, lat: coords.lat }))
+      .then(function (r) {
+        var muni = r && r.muni ? r.muni : menor[menor.length - 1] || "";
+        var items = menor.slice(0, -1).concat([muni, r && r.province ? r.province : ""]).filter(Boolean);
+        return { items: items, provincia: r && r.province ? r.province : "" };
+      })
+      .catch(function () { return { items: menor, provincia: "" }; });
+  }
+
   function numero(t) {
     var n = parseFloat(String(t || "").replace(/\./g, "").replace(",", ".").replace(/[^\d.]/g, ""));
     return isNaN(n) ? null : n;
@@ -157,7 +173,8 @@
 
   // precio, m² y unidades (tabla "pisos disponibles en venta" en obra nueva)
   function datosAnuncio() {
-    var id = (location.pathname.match(RE_DETALLE) || [])[2];
+    var ids = location.pathname.match(/\d{5,}/g) || [];
+    var id = ids[ids.length - 1] || (location.pathname.match(RE_DETALLE) || [])[2];
     var obra = /\/obra-nueva\//.test(location.pathname);
     var titulo = (document.querySelector(".main-info__title-main, h1") || {}).textContent || document.title;
     titulo = titulo.replace(/\s+/g, " ").trim();
@@ -1109,9 +1126,10 @@
       !av && !S.err.precio && !S.precio, S.err.precio || (S.precio && !S.precio.alquiler) ? "sin datos de alquiler en la zona" : null);
     // edificio (Catastro)
     var Ed = S.edificio;
-    var edDudoso = Ed && (S.anuncio.obra || (Ed.distancia != null && Ed.distancia > 25));
-    t("edificio", "Edificio", Ed ? (edDudoso ? (S.anuncio.obra ? "Sin catastrar aún" : "Dudoso") : Ed.anoConstruccion ? "Año " + Ed.anoConstruccion : "Sin datos") : "",
-      Ed ? (edDudoso ? "parcela más cercana a " + fmtN(Ed.distancia || 0) + " m" :
+    var edDudoso = edificioDudoso(Ed);
+    t("edificio", "Edificio", Ed ? (edDudoso ? (S.anuncio.obra ? "Aún sin catastrar" : "Dudoso") : Ed.anoConstruccion ? "Año " + Ed.anoConstruccion : "Sin datos") : "",
+      Ed ? (edDudoso ? (Ed.distancia > 25 ? "parcela más cercana a " + fmtN(Ed.distancia) + " m" :
+        "en el Catastro aún figura " + (Ed.anoConstruccion ? "lo de antes (" + Ed.anoConstruccion + ")" : "como " + (Ed.uso || "suelo"))) :
         [Ed.plantas ? Ed.plantas + " plantas" : "", Ed.viviendas ? Ed.viviendas + " viviendas" : "", "Catastro"].filter(Boolean).join(" · ")) : "",
       null, !Ed && !S.err.edificio, S.err.edificio);
     // checklist
@@ -1119,6 +1137,15 @@
     t("check", "Checklist", hechos + "/" + ch.length + " hecho",
       S.anuncio.obra ? "antes de reservar" : "antes de ofertar", hechos === ch.length ? 10 : null);
     return { T: T, P: P };
+  }
+
+  // ¿el edificio del Catastro es de verdad el del anuncio? Lejos (> 25 m) no; en
+  // obra nueva solo si ya está catastrado con un año reciente
+  function edificioDudoso(Ed) {
+    if (!Ed) return false;
+    if (Ed.distancia != null && Ed.distancia > 25) return true;
+    if (S.anuncio.obra) return !Ed.anoConstruccion || Ed.anoConstruccion < new Date().getFullYear() - 3;
+    return false;
   }
 
   function alquilarVsComprar() {
@@ -1383,9 +1410,10 @@
       h += "<h4>El edificio según el Catastro</h4>";
       if (S.err.edificio) return h + "<p class='izb-err'>" + esc(S.err.edificio) + "</p>";
       if (!Ed) return h + "<p class='muted'>Consultando el Catastro…</p>";
-      var dudoso = S.anuncio.obra || (Ed.distancia != null && Ed.distancia > 25);
-      if (dudoso) h += "<p class='izb-err' style='color:#92400e !important'>" + (S.anuncio.obra ? "Obra nueva: suele no estar catastrada aún, " : "") +
-        "la parcela encontrada está a " + fmtN(Ed.distancia || 0) + " m de las coordenadas del anuncio: puede ser el edificio de al lado.</p>";
+      if (edificioDudoso(Ed)) h += "<p class='izb-err' style='color:#92400e !important'>" +
+        (Ed.distancia > 25 ? "La parcela encontrada está a " + fmtN(Ed.distancia) + " m de las coordenadas del anuncio: puede ser el edificio de al lado." :
+          "Obra nueva aún sin catastrar: lo que figura en esta parcela es lo que había antes" + (Ed.anoConstruccion ? " (año " + Ed.anoConstruccion + ")" : "") +
+          ". Se actualiza tras la escritura de obra nueva.") + "</p>";
       h += "<div class='izb-kpis'>" +
         "<div class='izb-kpi'><div class='k'>Año de construcción</div><div class='v'>" + (Ed.anoConstruccion || "—") + "</div><div class='s'>" + esc(Ed.estado || "") + "</div></div>" +
         "<div class='izb-kpi'><div class='k'>Plantas</div><div class='v'>" + (Ed.plantas || "—") + "</div><div class='s'>" + (Ed.sotanos ? Ed.sotanos + " bajo rasante" : "") + "</div></div>" +
@@ -2461,9 +2489,12 @@
       box.addEventListener("keydown", onKey);
     }
     var ub = ubicacion();
-    // el listado usará estas coordenadas exactas para esta tarjeta
-    cacheSet("tarj:" + m[2], { lat: coords.lat, lng: coords.lng, prec: "portal",
-      muni: ub.items.length > 1 ? ub.items[ub.items.length - 2] : "", provincia: ub.provincia }, 365);
+    // el listado usará estas coordenadas exactas para esta tarjeta (y para la
+    // promoción, si es una vivienda dentro de ella)
+    [m[2]].concat(location.pathname.match(/\d{5,}/g) || []).forEach(function (id) {
+      cacheSet("tarj:" + id, { lat: coords.lat, lng: coords.lng, prec: "portal",
+        muni: ub.items.length > 1 ? ub.items[ub.items.length - 2] : "", provincia: ub.provincia }, 365);
+    });
     S = { coords: coords, ub: ub, anuncio: datosAnuncio(), err: {},
           zona: zonaPropia(coords.lat, coords.lng), inund: null, renta: null, servicios: null, coche: null, precio: null,
           crimen: null, edificio: null };
@@ -2476,9 +2507,11 @@
     }
     lanzar("inund", inundacion(coords.lat, coords.lng));
     lanzar("renta", renta(coords.lat, coords.lng));
-    lanzar("precio", precioZona(ub));
-    if (window.__izSeguridad) lanzar("crimen", window.__izSeguridad.consultar(ub.items.length > 1 ? ub.items[ub.items.length - 2] : "", ub.provincia)
-      .then(function (r) { return r || { sinDato: true, motivo: "no hay datos de criminalidad (genera criminalidad/municipios.json)" }; }));
+    var pUb = completarUbicacion(ub, coords).then(function (u) { S.ub = u; return u; });
+    lanzar("precio", pUb.then(precioZona));
+    if (window.__izSeguridad) lanzar("crimen", pUb.then(function (u) {
+      return window.__izSeguridad.consultar(u.items.length > 1 ? u.items[u.items.length - 2] : "", u.provincia);
+    }).then(function (r) { return r || { sinDato: true, motivo: "no hay datos de criminalidad (genera criminalidad/municipios.json)" }; }));
     if (window.__izCatastro) lanzar("edificio", window.__izCatastro.edificio(coords.lat, coords.lng));
     // los servicios dan el hospital más cercano, que luego va a la ruta en coche
     recargarCoche();
