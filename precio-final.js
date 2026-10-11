@@ -13,6 +13,8 @@
 (function () {
   "use strict";
 
+  var VERSION = "1.8.2"; // se canta en consola: así sabemos qué build corre de verdad
+
   // ------------------------------------------------------------- ajustes
   var LS_CFG = "iz_pf_cfg";   // valores guardados
   var LS_ON = "iz_pf_on";     // encendido/apagado
@@ -560,12 +562,14 @@
 
   // ------------------------------------------------------------- barrido
 
-  // ¿el elemento o alguno de sus ancestros ya lleva badge? (evita duplicados)
+  // ¿el elemento o alguno de sus ancestros YA FUE PROCESADO? (evita duplicados)
+  // OJO: solo miramos la marca __izpf de los ancestros. No podemos usar
+  // querySelector(".izpf-badge") aquí: cualquier ancestro alto (body) contiene
+  // TODOS los badges de la página y bloquearía el resto de precios en cadena.
   function familiaConBadge(el) {
     var a = el;
     while (a) {
       if (a.__izpf) return true;
-      if (a.querySelector && a.querySelector(".izpf-badge")) return true;
       a = a.parentElement;
     }
     return false;
@@ -659,7 +663,7 @@
         if (hallada) c.itp = hallada[1];
         guardarCfg(c);
       }
-      log("arrancando en " + location.href);
+      log("v" + VERSION + " arrancando en " + location.href);
 
       // idealista inyecta la tabla de unidades dinámicamente y navega en SPA:
       var t = null;
