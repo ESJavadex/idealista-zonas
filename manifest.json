@@ -1,8 +1,8 @@
 {
   "manifest_version": 3,
   "name": "Idealista Zonas (verde/rojo)",
-  "version": "1.2.0",
-  "description": "Pinta encima del mapa de idealista las zonas buenas (verde) y malas (rojo) según tu clasificación. Valencia y Castellón incluidas; editable para toda España.",
+  "version": "1.5.2",
+  "description": "Pinta encima del mapa de idealista las zonas buenas (verde) y malas (rojo) según tu clasificación. Valencia y Castellón incluidas; editable para toda España. Además, en fichas de inmueble (obra nueva y segunda mano) muestra el PRECIO REAL: impuestos (IVA/AJD/ITP), gastos (notaría, registro, gestoría, tasación) y simulación de hipoteca.",
   "content_scripts": [
     {
       "matches": [
@@ -10,7 +10,7 @@
         "*://idealista.com/*",
         "*://*.idealista.com/*"
       ],
-      "js": ["zonas.js", "hook.js"],
+      "js": ["zonas.js", "hook.js", "precio-final.js"],
       "run_at": "document_start",
       "world": "MAIN"
     }

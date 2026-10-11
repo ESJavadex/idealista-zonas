@@ -196,3 +196,39 @@ Spanish guide above; code comments are in plain Spanish.
 (free-panning `/point/…` views) all zones are drawn, so it is always active.
 
 No permissions required.
+
+---
+
+## 💶 Precio real y simulación (v1.4.0)
+
+En las fichas de inmueble (`/obra-nueva/...` y `/inmueble/...`) la extensión añade
+junto a cada precio (el principal y cada piso de "pisos disponibles en venta") un
+badge **🧮 final ≈ X €** con el precio de verdad: anuncio + impuestos + gastos.
+
+Al pulsarlo se abre un panel con:
+
+- **Desglose completo**: IVA + AJD (obra nueva) o ITP (segunda mano), notaría,
+  registro, gestoría y tasación (opcionales, con checkbox).
+- **Precio final** y % extra sobre el precio de anuncio.
+- **💰 Líquido necesario** hasta la escritura: entrada + impuestos + gastos
+  (lo que de verdad hay que tener ahorrado; por defecto entrada 20 % → ~30 % del precio final).
+- **📅 Cronograma**: cuándo pagas cada cosa — reserva (hoy), arras (firma),
+  resto de entrada, impuestos y gastos (escritura). Reserva y arras son a cuenta.
+- **🏦 Simulación de hipoteca** (por defecto 20 % entrada, 30 años, 3 %): cuota mensual,
+  intereses totales, coste mensual real (cuota + comunidad + IBI/12),
+  TODO pagado al final e ingreso mínimo recomendado (cuota ≤ 35 % del neto).
+- **⚡ Escenarios rápidos**: cuota con entrada 20/25/30 % × plazo 25/30 años, un click para aplicarlos.
+- **⚙ ajustar**: edita IVA, AJD, ITP, notaría, registro, gestoría, tasación, reserva,
+  arras %, IBI, comunidad y selector de CCAA (ITP por comunidad, autodetectada
+  por la provincia de la página).
+
+Notas:
+
+- Los tipos por defecto son los generales de la Comunitat Valenciana
+  (ITP 10 %, IVA 10 %, AJD 1,5 %). Son editables y se guardan en `localStorage`
+  (clave `iz_pf_cfg`).
+- En obra nueva, la **reserva** (~3.000 €) y las **arras** (10 %) se pagan durante
+  la construcción pero van **a cuenta del precio**: no suman coste (se avisa en el panel).
+- Los impuestos se calculan sobre el precio de escritura; si el valor catastral
+  o el valor de referencia superan el precio, Hacienda usa el mayor.
+- Notaría y registro son estimaciones (varían con el precio y el número de páginas).
