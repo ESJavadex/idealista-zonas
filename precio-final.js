@@ -474,7 +474,8 @@
     var padre = el.parentElement;
     if (!padre) return;
     var precio = num(el.textContent);
-    if (precio < 5000) return; // no es un precio de vivienda
+    // rango de vivienda (evita referencias, m², fechas… que casen por accidente)
+    if (precio < 10000 || precio > 5000000) return;
     // si el precio vive dentro de un enlace, colgamos del contenedor superior
     // para que el click no navegue y el panel no herede el enlace
     var contenedor = (padre.tagName === "A" && padre.parentElement) ? padre.parentElement : padre;
@@ -544,7 +545,12 @@
       var node;
       while ((node = walker.nextNode())) {
         var t = node.nodeValue || "";
-        var m = t.match(/(?:desde\s+)?\d{1,3}(?:\.\d{3})*\s?€/i);
+        // rama A: precio con € en el propio nodo ("Desde 242.000 €")
+        // rama B: idealista parte el precio y la divisa en nodos distintos
+        //         ("242.000" + " €") — exigimos separadores de miles para no
+        //         pillar referencias ni estadísticas ("49254", "107807646")
+        var m = t.match(/(?:desde\s+)?\d{1,3}(?:\.\d{3})*\s?€/i) ||
+                t.match(/(?:desde\s+)?\d{1,3}(?:\.\d{3})+/);
         if (!m) continue;
         var host = node.parentElement;
         if (!host || !visible(host)) continue;
@@ -565,6 +571,15 @@
         candidatos++;
         inyectarEn(objetivo);
         if (candidatos >= 40) break;
+        // diagnóstico: si el badge quedó en un sitio que no se pinta, lo decimos
+        var badges = document.querySelectorAll(".izpf-badge");
+        var ultimo = badges.length ? badges[badges.length - 1] : null;
+        if (ultimo && !visible(ultimo)) {
+          log("ojo: badge para " + (objetivo.textContent || "").trim() +
+            " inyectado pero NO visible (contenedor <" +
+            (objetivo.parentElement ? objetivo.parentElement.tagName : "?") +
+            " class=\"" + ((objetivo.parentElement || {}).className || "") + "\">");
+        }
       }
       var total = document.querySelectorAll(".izpf-badge").length;
       if (total > 0) log(total + " precio(s) final(es) visibles (candidatos: " + candidatos + ")");
