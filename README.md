@@ -322,12 +322,15 @@ Dos capas más para conocer la zona sin ser de allí:
   municipio salen la evolución 2016–2025 (municipio, provincia y España) y el
   resto de tipos ordenados de peor a mejor. Interior solo publica municipios
   de más de 20.000 habitantes, y no hay dato oficial por barrio.
-- **Población extranjera**, con dos modos:
+- **Población extranjera** (selector «Ver»):
   - *Continente predominante* (zoom ≥ 9): el color es el continente de origen
     más numeroso del municipio (Europa azul, África naranja, Latinoamérica
     verde, Asia rosa) y la intensidad, el % de extranjeros.
-  - *% por sección* (zoom ≥ 11): el % de extranjeros barrio a barrio, del
-    censo 2025.
+  - *% África / % Europa / % Latinoamérica / % Asia* (zoom ≥ 9): cada
+    municipio en el color de ese continente, más intenso cuanto mayor es el %
+    de su población con esa nacionalidad (< 1 %, 1–3, 3–6, 6–10, > 10 %).
+  - *% extranjeros por sección* (zoom ≥ 11): el % de extranjeros barrio a
+    barrio, del censo 2025.
 
   Al pulsar sale el reparto por continente, con barra y ranking (en Europa
   también el % de la UE). Lo genera `herramientas/generar_extranjeros.py`
