@@ -8,3 +8,4 @@ docs/preview.png
 
 # Datos de servicios generados (herramientas/generar_servicios.py) 
 servicios/
+__pycache__/

@@ -23,7 +23,7 @@
   if (window.top !== window) return; // solo el documento principal
   if (!/idealista\./.test(location.hostname) && !window.__IZ_TEST) return; // __IZ_TEST: página de pruebas local
 
-  var VERSION = "2.1.0";
+  var VERSION = "2.2.0";
   var RE_DETALLE = /\/(obra-nueva|inmueble)\/(\d+)/;
 
   // ----------------------------------------------------------------- utils
@@ -675,9 +675,18 @@
   // ===================================================================
   // PUNTUACIÓN
   // ===================================================================
-  var PESOS = { zona: 2, inund: 2, renta: 1, servicios: 1.5, coche: 1.5, precio: 1, esfuerzo: 1, turisticos: 1 };
+  // pesos por defecto; se cambian en ⚙ Ajustes (localStorage "izb_ajustes")
+  var PESOS_DEF = { zona: 2, inund: 2, crimen: 1.5, renta: 1, turisticos: 1, servicios: 1.5, coche: 1.5, precio: 1, esfuerzo: 1 };
+  var LS_AJ = "izb_ajustes";
+  function ajustes() {
+    var a = lsGet(LS_AJ, null) || {}, p = {};
+    for (var k in PESOS_DEF) p[k] = a.pesos && a.pesos[k] != null ? +a.pesos[k] : PESOS_DEF[k];
+    return { pesos: p, topeDana: a.topeDana !== false, topeRoja: a.topeRoja !== false,
+             anioViejo: a.anioViejo || 1980, notaAlerta: a.notaAlerta || 7 };
+  }
   var NOMBRES = { zona: "Tu zona", inund: "Inundación", renta: "Renta del barrio", servicios: "Servicios a pie",
-                  coche: "Conexión", precio: "Precio vs zona", esfuerzo: "Esfuerzo financiero", turisticos: "Pisos turísticos" };
+                  coche: "Conexión", precio: "Precio vs zona", esfuerzo: "Esfuerzo financiero", turisticos: "Pisos turísticos",
+                  crimen: "Criminalidad oficial" };
 
   function notaZona(z) {
     if (!z || !z.zonas.length) return null;
@@ -766,19 +775,21 @@
       zona: notaZona(S.zona), inund: notaInund(S.inund), renta: notaRenta(S.renta),
       servicios: notaServicios(S.servicios), coche: notaCoche(S.coche),
       precio: notaPrecio(S.anuncio, S.precio), esfuerzo: notaEsfuerzo(S.anuncio),
-      turisticos: notaTuristicos(S.renta)
+      turisticos: notaTuristicos(S.renta),
+      crimen: S.crimen && !S.crimen.sinDato && window.__izSeguridad ? window.__izSeguridad.notaCriminalidad(S.crimen) : null
     };
+    var AJ = ajustes(), PESOS = AJ.pesos;
     var suma = 0, peso = 0, n = 0;
     for (var k in notas) {
-      if (notas[k] == null) continue;
+      if (notas[k] == null || !PESOS[k]) continue;
       suma += notas[k] * PESOS[k]; peso += PESOS[k]; n++;
     }
     var total = peso ? suma / peso : null;
     // la DANA es eliminatoria: el resto no compensa que se haya inundado
-    if (S.inund && S.inund.danaDentro && total != null) total = Math.min(total, 3.5);
+    if (AJ.topeDana && S.inund && S.inund.danaDentro && total != null) total = Math.min(total, 3.5);
     // tu clasificación en rojo también manda (es tu criterio de peligrosidad)
     var zr = S.zona && S.zona.zonas[0];
-    if (zr && (zr.veredicto === "mal" || zr.veredicto === "muy_mal") && total != null) total = Math.min(total, 4.9);
+    if (AJ.topeRoja && zr && (zr.veredicto === "mal" || zr.veredicto === "muy_mal") && total != null) total = Math.min(total, 4.9);
     return { notas: notas, total: total, n: n };
   }
   function etiquetaTotal(t, S) {
@@ -847,6 +858,20 @@
       else if (f.endeudamiento > 35) contra.push("Esfuerzo alto: la cuota se come el " + fmtP(f.endeudamiento) + " del neto");
     }
     if (R && R.turisticas >= 5) contra.push("Muchos pisos turísticos en la sección (" + fmtP(R.turisticas) + ")");
+    var Cr = S.crimen;
+    if (Cr && !Cr.sinDato && Cr.tasaProv) {
+      var rel = Cr.tasa / Cr.tasaProv;
+      if (rel >= 1.25) contra.push("Más delitos que su provincia: " + fmtN(Cr.tasa, 1) + " por 1.000 hab. (provincia " + fmtN(Cr.tasaProv, 1) + ")");
+      else if (rel <= 0.8) pro.push("Menos delitos que su provincia: " + fmtN(Cr.tasa, 1) + " por 1.000 hab. (provincia " + fmtN(Cr.tasaProv, 1) + ")");
+      if (Cr.variacionAnual != null && Cr.variacionAnual >= 10) contra.push("La criminalidad del municipio sube un " + fmtN(Cr.variacionAnual, 1) + " % en un año");
+    }
+    var Ed = S.edificio;
+    if (Ed && Ed.anoConstruccion && !S.anuncio.obra) {
+      if (Ed.anoConstruccion < ajustes().anioViejo) contra.push("Edificio de " + Ed.anoConstruccion + ": pregunta por la inspección técnica (IEE) y derramas");
+      var cm = window.__izCatastro && S.anuncio.m2 ? window.__izCatastro.compararM2(Ed, S.anuncio.m2) : null;
+      if (cm && cm.sospechoso) contra.push("Los m² del anuncio (" + fmtN(S.anuncio.m2) + ") no encajan con el Catastro (" +
+        (cm.parecido != null ? fmtN(cm.parecido) + " m² el más parecido" : fmtN(cm.min) + "–" + fmtN(cm.max) + " m²") + ")");
+    }
     return { pro: pro, contra: contra };
   }
 
@@ -880,14 +905,15 @@
     ".izb .izb-res li.c::before{content:'!' !important;color:#fff !important;background:#d97706 !important;border-radius:50% !important;width:15px !important;height:15px !important;font-size:11px !important;text-align:center !important;line-height:15px !important;top:4px !important;}",
     ".izb .izb-res li.c.grave::before{background:#dc2626 !important;}",
     // tiles
-    ".izb .izb-tiles{display:grid !important;grid-template-columns:repeat(4,1fr) !important;gap:8px !important;padding:8px 16px 0 !important;}",
+    ".izb .izb-tiles{display:grid !important;grid-template-columns:repeat(5,1fr) !important;gap:8px !important;padding:8px 16px 0 !important;}",
     "@media (max-width:760px){.izb .izb-tiles{grid-template-columns:repeat(2,1fr) !important;}.izb .izb-top{grid-template-columns:1fr !important;}}",
-    ".izb .izb-tile{all:unset;display:block !important;cursor:pointer !important;border:1px solid #e5e6e1 !important;border-left:4px solid #9ca3af !important;border-radius:4px !important;padding:8px 10px !important;background:#fff !important;min-height:74px !important;transition:background .12s,box-shadow .12s !important;}",
+    ".izb .izb-tile{all:unset;display:block !important;min-width:0 !important;cursor:pointer !important;border:1px solid #e5e6e1 !important;border-left:4px solid #9ca3af !important;border-radius:4px !important;padding:7px 8px !important;background:#fff !important;min-height:74px !important;transition:background .12s,box-shadow .12s !important;}",
     ".izb .izb-tile:hover{background:#f9fafb !important;box-shadow:0 1px 4px rgba(0,0,0,.08) !important;}",
     ".izb .izb-tile.sel{background:#f3f4f6 !important;box-shadow:inset 0 0 0 1px #9ca3af !important;}",
-    ".izb .izb-tile .l{display:flex !important;justify-content:space-between !important;gap:4px !important;font-size:11px !important;white-space:nowrap !important;color:#6b7280 !important;font-weight:600 !important;text-transform:uppercase !important;letter-spacing:.02em !important;}",
-    ".izb .izb-tile .n{font-size:11px !important;font-weight:700 !important;padding:0 5px !important;border-radius:8px !important;background:#f3f4f6 !important;color:#374151 !important;text-transform:none !important;}",
-    ".izb .izb-tile .v{display:block !important;font-size:16px !important;white-space:nowrap !important;overflow:hidden !important;text-overflow:ellipsis !important;font-weight:700 !important;margin-top:3px !important;line-height:1.2 !important;color:#141414 !important;}",
+    ".izb .izb-tile .l{display:flex !important;justify-content:space-between !important;gap:4px !important;font-size:10.5px !important;white-space:nowrap !important;overflow:hidden !important;color:#6b7280 !important;font-weight:600 !important;text-transform:uppercase !important;letter-spacing:.02em !important;}",
+    ".izb .izb-tile .l>span:first-child{overflow:hidden !important;text-overflow:ellipsis !important;min-width:0 !important;}",
+    ".izb .izb-tile .n{flex-shrink:0 !important;font-size:11px !important;font-weight:700 !important;padding:0 5px !important;border-radius:8px !important;background:#f3f4f6 !important;color:#374151 !important;text-transform:none !important;}",
+    ".izb .izb-tile .v{display:block !important;font-size:15px !important;white-space:normal !important;overflow-wrap:anywhere !important;font-weight:700 !important;margin-top:3px !important;line-height:1.2 !important;color:#141414 !important;}",
     ".izb .izb-tile .s{display:block !important;font-size:12px !important;color:#6b7280 !important;margin-top:2px !important;line-height:1.3 !important;}",
     ".izb .bien{border-left-color:#16a34a !important;}.izb .aviso{border-left-color:#d97706 !important;}.izb .mal{border-left-color:#dc2626 !important;}",
     ".izb .izb-tile.bien .n{background:#dcfce7 !important;color:#166534 !important;}",
@@ -965,7 +991,22 @@
     ".izk-t .nota{font-size:20px !important;font-weight:800 !important;}",
     ".izk-t .rm{all:unset;cursor:pointer !important;color:#9ca3af !important;font-size:12px !important;}",
     ".izk-t .rm:hover{color:#dc2626 !important;}",
-    ".izk-vacio{padding:30px !important;text-align:center !important;color:#6b7280 !important;}"
+    ".izk-vacio{padding:30px !important;text-align:center !important;color:#6b7280 !important;}",
+    ".izj{max-width:980px !important;}",
+    ".izj .izj-grid{display:grid !important;grid-template-columns:1fr 1fr !important;gap:10px 28px !important;}",
+    "@media (max-width:760px){.izj .izj-grid{grid-template-columns:1fr !important;}}",
+    ".izj h3{font-size:14px !important;font-weight:700 !important;margin:14px 0 6px !important;padding:0 0 4px !important;border-bottom:1px solid #eeefeb !important;color:#141414 !important;}",
+    ".izj .izj-m{font-size:12.5px !important;color:#6b7280 !important;margin:2px 0 8px !important;}",
+    ".izj label{display:flex !important;align-items:center !important;gap:8px !important;font-size:13.5px !important;margin:5px 0 !important;color:#141414 !important;font-weight:400 !important;}",
+    ".izj .izj-peso span{flex:1 !important;}",
+    ".izj .izj-peso input{width:140px !important;accent-color:#145bc7 !important;}",
+    ".izj .izj-peso b{width:28px !important;text-align:right !important;font-variant-numeric:tabular-nums !important;}",
+    ".izj .izj-campo span{flex:1 !important;}",
+    ".izj .izj-campo input,.izj input[type=number]{width:100px !important;border:1px solid #d1d5db !important;border-radius:4px !important;padding:3px 6px !important;font-size:13px !important;}",
+    ".izj .izj-campo i{width:46px !important;font-style:normal !important;color:#6b7280 !important;font-size:12px !important;}",
+    ".izj .izj-ul{margin:0 0 6px 18px !important;padding:0 !important;font-size:13px !important;}",
+    ".izj .izj-btn{all:unset;cursor:pointer !important;color:#145bc7 !important;font-weight:600 !important;font-size:13px !important;}",
+    ".izk-toast{position:fixed !important;left:50% !important;bottom:24px !important;transform:translateX(-50%) !important;z-index:2147483647 !important;background:#141414 !important;color:#fff !important;padding:10px 16px !important;border-radius:6px !important;font:14px/1.4 bernino-regular,Verdana,Arial,sans-serif !important;box-shadow:0 6px 20px rgba(0,0,0,.3) !important;max-width:90vw !important;}"
   ].join("\n");
   function ponerCSS() {
     if (document.getElementById("izb-css")) return;
@@ -1035,35 +1076,48 @@
       I ? (I.danaDentro ? "huella oficial de la Generalitat" : I.patri[0] ? "PATRICOVA nivel " + (I.patri[0].nivel === 7 ? "geomorf." : I.patri[0].nivel) :
         I.danaCerca ? "DANA a < ~200 m" : I.patriCerca.length ? "PATRICOVA a < 250 m" : "DANA 2024 + PATRICOVA") : "",
       P.notas.inund, !I && !S.err.inund, S.err.inund);
+    // criminalidad oficial del municipio
+    var Cr = S.crimen;
+    t("crimen", "Seguridad", Cr ? (Cr.sinDato ? "Sin dato oficial" : fmtN(Cr.tasa, 1) + " ‰") : "",
+      Cr ? (Cr.sinDato ? "municipio < 20.000 hab." : "delitos/1.000 hab. · prov. " + fmtN(Cr.tasaProv, 1) +
+        (Cr.variacionAnual != null ? " · " + signo(Cr.variacionAnual, 1) + " % en un año" : "")) : "",
+      P.notas.crimen, !Cr && !S.err.crimen, S.err.crimen);
     // renta
     var R = S.renta;
-    t("renta", "Renta del barrio", R ? fmtE(R.rentaPersona) + "/persona" : "",
+    t("renta", "Renta", R ? fmtE(R.rentaPersona) + "/persona" : "",
       R ? (R.pctProv != null ? "más que el " + R.pctProv + " % de la provincia" : "INE 2023") : "",
       P.notas.renta, !R && !S.err.renta, S.err.renta);
     // servicios
     var e = esencialesCerca(S.servicios);
-    t("servicios", "Servicios a pie", e ? e.n + " de " + e.tot + " a ≤ 10 min" : "",
+    t("servicios", "Servicios", e ? e.n + "/" + e.tot + " a pie" : "",
       S.servicios && S.servicios.mejor.super ? "súper a " + minAndando(S.servicios.mejor.super.m) + " min" : "OpenStreetMap",
       P.notas.servicios, !S.servicios && !S.err.servicios, S.err.servicios);
     // coche
     var rp = rutaPrincipal(S.coche);
-    t("coche", "En coche", rp && rp.min != null ? rp.min + " min" : S.coche ? "—" : "",
+    t("coche", "Coche", rp && rp.min != null ? rp.min + " min" : S.coche ? "—" : "",
       rp ? "a " + rp.n.replace(/\s*\(.*\)/, "") : "sin tráfico", P.notas.coche, !S.coche && !S.err.coche, S.err.coche);
     // precio
     var d = difPrecio(S.anuncio, S.precio);
     var pz = S.precio && S.precio.zona;
-    t("precio", "Precio zona", pz ? fmtN(pz.m2) + " €/m²" : "",
+    t("precio", "Precio", pz ? fmtN(pz.m2) + " €/m²" : "",
       d ? "este: " + fmtN(d.m2) + " €/m² (" + signo(d.dif) + " %)" : pz && pz.varAnual != null ? signo(pz.varAnual, 1) + " % en un año" : "",
       P.notas.precio, !S.precio && !S.err.precio, S.err.precio);
     // alquilar vs comprar
     var av = alquilarVsComprar();
-    t("alquiler", "Alquilar vs comprar", av ? (av.dif >= 0 ? "Comprar: +" : "Comprar: −") + fmtE(Math.abs(av.dif)) + "/mes" : "",
+    t("alquiler", "Alquiler", av ? (av.dif >= 0 ? "Comprar: +" : "Comprar: −") + fmtE(Math.abs(av.dif)) + "/mes" : "",
       av ? "alquiler similar ≈ " + fmtE(av.alquiler) + "/mes" : "", av ? (av.dif <= 0 ? 8 : av.dif < 200 ? 6 : 4) : null,
       !av && !S.err.precio && !S.precio, S.err.precio || (S.precio && !S.precio.alquiler) ? "sin datos de alquiler en la zona" : null);
+    // edificio (Catastro)
+    var Ed = S.edificio;
+    var edDudoso = Ed && (S.anuncio.obra || (Ed.distancia != null && Ed.distancia > 25));
+    t("edificio", "Edificio", Ed ? (edDudoso ? (S.anuncio.obra ? "Sin catastrar aún" : "Dudoso") : Ed.anoConstruccion ? "Año " + Ed.anoConstruccion : "Sin datos") : "",
+      Ed ? (edDudoso ? "parcela más cercana a " + fmtN(Ed.distancia || 0) + " m" :
+        [Ed.plantas ? Ed.plantas + " plantas" : "", Ed.viviendas ? Ed.viviendas + " viviendas" : "", "Catastro"].filter(Boolean).join(" · ")) : "",
+      null, !Ed && !S.err.edificio, S.err.edificio);
     // checklist
     var ch = checklist(), hechos = ch.filter(function (c) { return c.ok; }).length;
-    t("check", S.anuncio.obra ? "Antes de reservar" : "Antes de ofertar", hechos + " de " + ch.length + " revisado",
-      "checklist de esta vivienda", hechos === ch.length ? 10 : null);
+    t("check", "Checklist", hechos + "/" + ch.length + " hecho",
+      S.anuncio.obra ? "antes de reservar" : "antes de ofertar", hechos === ch.length ? 10 : null);
     return { T: T, P: P };
   }
 
@@ -1083,17 +1137,17 @@
     var r = tiles(), P = r.P;
     var et = etiquetaTotal(P.total, S);
     var res = resumen(S, P);
-    var pend = ["inund", "renta", "servicios", "coche", "precio"].filter(function (k) {
-      return S[k === "inund" ? "inund" : k] == null && !S.err[k];
+    var pend = ["inund", "renta", "servicios", "coche", "precio", "crimen", "edificio"].filter(function (k) {
+      return S[k] == null && !S.err[k];
     }).length;
     var html = "";
     html += "<div class='izb-bar'><span class='t'>¿comprar aquí? <small>· análisis de la zona</small></span>" +
       "<button class='izb-b izb-guardar" + (enComparador(S.anuncio.url) ? " on" : "") + "'>" +
       (enComparador(S.anuncio.url) ? "★ En el comparador" : "☆ Guardar para comparar") + "</button>" +
-      "<button class='izb-b izb-abrircmp'>⚖ Comparador</button></div>";
+      "<button class='izb-b izb-abrircmp'>⚖ Comparador</button><button class='izb-b izb-aj' title='Pesos de la nota, hipoteca, copia de seguridad'>⚙</button></div>";
     html += "<div class='izb-top'><div class='izb-nota'>" + anillo(P.total, et[1]) +
       "<div class='lab' style='color:" + ({ bien: "#166534", aviso: "#92400e", mal: "#991b1b", neutro: "#374151" })[et[1]] + "'>" + esc(et[0]) + "</div>" +
-      "<div class='sub'>" + P.n + " de 8 criterios" + (pend ? " · cargando " + pend + "…" : "") + "</div></div>";
+      "<div class='sub'>" + P.n + " de " + Object.keys(PESOS_DEF).length + " criterios" + (pend ? " · cargando " + pend + "…" : "") + "</div></div>";
     html += "<div class='izb-res'><h3>Resumen</h3><div class='dir'>" + esc(S.ub.items.slice(0, 3).join(" · ")) + "</div>";
     if (res.pro.length) html += "<ul>" + res.pro.map(function (x) { return "<li class='p'>" + esc(x) + "</li>"; }).join("") + "</ul>";
     if (res.contra.length) html += "<ul>" + res.contra.map(function (x) {
@@ -1237,6 +1291,10 @@
           "</span></span><span class='r'>" + (r && r.min != null ? r.min + " min<small>" + fmtN(r.km, 1) + " km</small>" :
             C ? "<small>muy lejos</small>" : "…") +
           " <button class='izb-x izb-borrar' data-i='" + i + "' title='quitar destino'>✕</button></span></div>";
+        var gm = "https://www.google.com/maps/dir/?api=1&origin=" + S.coords.lat + "," + S.coords.lng + "&destination=" + d.lat + "," + d.lng;
+        h += "<div class='muted' style='margin:-2px 0 4px 34px'>" +
+          "<a target='_blank' rel='noopener' href='" + gm + "&travelmode=transit'>🚆 en transporte público</a> · " +
+          "<a target='_blank' rel='noopener' href='" + gm + "&travelmode=driving'>🚗 con tráfico real (Google Maps)</a></div>";
       });
       h += "</div><p style='display:flex;gap:6px;flex-wrap:wrap;align-items:center;margin-top:10px'>" +
         "<input type='text' class='izb-nuevo' placeholder='Añadir destino: trabajo, colegio, familia…'>" +
@@ -1289,6 +1347,62 @@
       h += "<p>De la cuota, unos <b>" + fmtE(amort) + "/mes</b> el primer año son capital que es vuestro (ahorro forzoso); el resto son intereses. " +
         "Alquilando, ese cash seguiría disponible.</p><p class='muted'>Cálculo con " + esc(S.anuncio.unidades.length ? "la vivienda más barata de la promoción" : "esta vivienda") +
         " y tu simulación de hipoteca (entrada, plazo e interés del panel de precio final).</p>";
+      return h;
+    }
+    if (k === "crimen") {
+      var Cr = S.crimen;
+      h += "<h4>Criminalidad oficial del municipio <span class='muted'>· Ministerio del Interior</span></h4>";
+      if (S.err.crimen) return h + "<p class='izb-err'>" + esc(S.err.crimen) + "</p>";
+      if (!Cr) return h + "<p class='muted'>Cargando…</p>";
+      if (Cr.sinDato) return h + "<p>" + esc(Cr.motivo) + ". Para el barrio, guíate por tu clasificación de zonas.</p>";
+      h += "<div class='izb-kpis'>" +
+        "<div class='izb-kpi'><div class='k'>" + esc(Cr.municipio) + " (" + esc(Cr.periodo) + ")</div><div class='v'>" + fmtN(Cr.tasa, 1) + "</div><div class='s'>infracciones por 1.000 hab. · " + fmtN(Cr.total) + " en total</div></div>" +
+        "<div class='izb-kpi'><div class='k'>Provincia</div><div class='v'>" + fmtN(Cr.tasaProv, 1) + "</div><div class='s'>" + (Cr.tasaProv ? signo(100 * (Cr.tasa / Cr.tasaProv - 1)) + " % el municipio" : "") + "</div></div>" +
+        "<div class='izb-kpi'><div class='k'>España</div><div class='v'>" + fmtN(Cr.tasaEsp, 1) + "</div><div class='s'>" + (Cr.tasaEsp ? signo(100 * (Cr.tasa / Cr.tasaEsp - 1)) + " % el municipio" : "") + "</div></div>" +
+        "<div class='izb-kpi'><div class='k'>Evolución</div><div class='v' style='color:" + (Cr.variacionAnual > 0 ? "#b45309" : "#15803d") + "'>" +
+          (Cr.variacionAnual != null ? signo(Cr.variacionAnual, 1) + " %" : "—") + "</div><div class='s'>en un año" +
+          (Cr.variacion5 != null ? " · " + signo(Cr.variacion5, 1) + " % desde " + esc(Cr.desde5) : "") + "</div></div></div>";
+      if (window.__izSeguridad && Cr.serie && Cr.serie.length > 1) h += "<div style='margin:8px 0'>" + window.__izSeguridad.sparklineSVG(Cr.serie) + "</div>" +
+        "<div class='muted' style='display:flex;justify-content:space-between;flex-wrap:wrap;gap:6px'><span><b style='color:#dc2626'>━</b> " + esc(Cr.municipio) +
+        " &nbsp; <b style='color:#f59e0b'>╌</b> provincia &nbsp; <b style='color:#9ca3af'>╌</b> España</span><span>" +
+        esc(Cr.serie[0].periodo) + " → " + esc(Cr.serie[Cr.serie.length - 1].periodo) + "</span></div>";
+      var TIPOS = [["hurtos", "Hurtos"], ["robo_domicilio", "Robos con fuerza en domicilios"], ["robo_violencia", "Robos con violencia"],
+                   ["vehiculos", "Sustracción de vehículos"], ["sexual", "Delitos contra la libertad sexual"], ["drogas", "Tráfico de drogas"], ["ciber", "Cibercriminalidad"]];
+      h += "<table class='izb-t'><tr><th>Tipo (por 1.000 hab.)</th><th style='text-align:right'>Municipio</th><th style='text-align:right'>Provincia</th><th style='text-align:right'>Último año</th></tr>";
+      TIPOS.forEach(function (tp) {
+        var x = Cr.tipos && Cr.tipos[tp[0]];
+        if (!x || x.tasa == null) return;
+        h += "<tr><td>" + tp[1] + "</td><td class='n'>" + fmtN(x.tasa, 2) + "</td><td class='n'>" + fmtN(x.tasaProv, 2) +
+          "</td><td class='n'>" + (x.variacion != null ? signo(x.variacion) + " %" : "—") + "</td></tr>";
+      });
+      h += "</table><p class='muted'>" + esc(Cr.nota) + " Fuente: <a target='_blank' rel='noopener' href='" + esc(Cr.url || "https://estadisticasdecriminalidad.ses.mir.es/") + "'>Balance de Criminalidad</a>.</p>";
+      return h;
+    }
+    if (k === "edificio") {
+      var Ed = S.edificio;
+      h += "<h4>El edificio según el Catastro</h4>";
+      if (S.err.edificio) return h + "<p class='izb-err'>" + esc(S.err.edificio) + "</p>";
+      if (!Ed) return h + "<p class='muted'>Consultando el Catastro…</p>";
+      var dudoso = S.anuncio.obra || (Ed.distancia != null && Ed.distancia > 25);
+      if (dudoso) h += "<p class='izb-err' style='color:#92400e !important'>" + (S.anuncio.obra ? "Obra nueva: suele no estar catastrada aún, " : "") +
+        "la parcela encontrada está a " + fmtN(Ed.distancia || 0) + " m de las coordenadas del anuncio: puede ser el edificio de al lado.</p>";
+      h += "<div class='izb-kpis'>" +
+        "<div class='izb-kpi'><div class='k'>Año de construcción</div><div class='v'>" + (Ed.anoConstruccion || "—") + "</div><div class='s'>" + esc(Ed.estado || "") + "</div></div>" +
+        "<div class='izb-kpi'><div class='k'>Plantas</div><div class='v'>" + (Ed.plantas || "—") + "</div><div class='s'>" + (Ed.sotanos ? Ed.sotanos + " bajo rasante" : "") + "</div></div>" +
+        "<div class='izb-kpi'><div class='k'>Viviendas</div><div class='v'>" + (Ed.viviendas != null ? Ed.viviendas : "—") + "</div><div class='s'>" + (Ed.inmuebles ? Ed.inmuebles + " inmuebles" : "") + "</div></div>" +
+        "<div class='izb-kpi'><div class='k'>Superficie construida</div><div class='v'>" + (Ed.superficieConstruida ? fmtN(Ed.superficieConstruida) + " m²" : "—") + "</div><div class='s'>" + esc(Ed.uso || "") + "</div></div></div>";
+      var cm = !S.anuncio.obra && S.anuncio.m2 && window.__izCatastro ? window.__izCatastro.compararM2(Ed, S.anuncio.m2) : null;
+      if (cm) h += "<p>m² del anuncio: <b>" + fmtN(S.anuncio.m2) + "</b> · en el Catastro las viviendas van de " + fmtN(cm.min) + " a " + fmtN(cm.max) +
+        " m²" + (cm.parecido != null ? " (la más parecida: " + fmtN(cm.parecido) + " m²)" : "") + " <span class='pill " + (cm.sospechoso ? "aviso" : "bien") + "'>" +
+        (cm.sospechoso ? "no encaja" : "encaja") + "</span></p><p class='muted'>El Catastro da superficie construida con parte de zonas comunes: suele ser algo mayor que la útil.</p>";
+      if (Ed.unidades && Ed.unidades.length) {
+        h += "<details><summary style='cursor:pointer'>Ver los " + Ed.unidades.length + " inmuebles</summary><table class='izb-t'><tr><th>Planta</th><th>Puerta</th><th>Uso</th><th style='text-align:right'>m²</th><th style='text-align:right'>Año</th></tr>";
+        Ed.unidades.slice(0, 80).forEach(function (u) {
+          h += "<tr><td>" + esc(u.planta || "") + "</td><td>" + esc(u.puerta || "") + "</td><td>" + esc(u.uso || "") + "</td><td class='n'>" + (u.m2 || "—") + "</td><td class='n'>" + (u.ano || "") + "</td></tr>";
+        });
+        h += "</table></details>";
+      }
+      h += "<p class='muted'>Referencia catastral " + esc(Ed.refCatastral || "") + (Ed.enlaceSede ? " · <a target='_blank' rel='noopener' href='" + esc(Ed.enlaceSede) + "'>ver en la Sede del Catastro</a>" : "") + "</p>";
       return h;
     }
     if (k === "check") {
@@ -1346,6 +1460,7 @@
     }
     if (t.closest(".izb-guardar")) { alternarComparador(); return; }
     if (t.closest(".izb-abrircmp")) { abrirComparador(); return; }
+    if (t.closest(".izb-aj")) { abrirAjustes(); return; }
     if (t.closest(".izb-export")) { ev.preventDefault(); descargar("ficha-" + (S.anuncio.id || "idealista") + ".json", JSON.stringify(snapshot(), null, 2), "application/json"); return; }
     if (t.closest(".izb-anadir")) {
       var inp = box.querySelector(".izb-nuevo");
@@ -1433,6 +1548,10 @@
       patricova: S.inund ? (S.inund.patri[0] ? "Nivel " + S.inund.patri[0].nivel : S.inund.patriCerca[0] ? "Cerca" : "No") : "",
       rentaPersona: S.renta ? S.renta.rentaPersona : null, percentilRenta: S.renta ? S.renta.pctProv : null,
       turisticas: S.renta && S.renta.turisticas != null ? Math.round(S.renta.turisticas * 10) / 10 : null,
+      crimenTasa: S.crimen && !S.crimen.sinDato ? S.crimen.tasa : null,
+      crimenProv: S.crimen && !S.crimen.sinDato ? S.crimen.tasaProv : null,
+      crimenVar: S.crimen && !S.crimen.sinDato ? S.crimen.variacionAnual : null,
+      edificioAno: S.edificio && S.edificio.anoConstruccion && !A.obra ? S.edificio.anoConstruccion : null,
       servicios: e ? e.n + "/" + e.tot : "", supermercadoMin: S.servicios && S.servicios.mejor.super ? minAndando(S.servicios.mejor.super.m) : null,
       cocheMin: rp ? rp.min : null, cocheA: rp ? rp.n : "",
       precioZonaM2: S.precio ? S.precio.zona.m2 : null, varAnualZona: S.precio ? S.precio.zona.varAnual : null,
@@ -1490,6 +1609,9 @@
     ["Renta/persona barrio", "rentaPersona", fmtE, "max"],
     ["Percentil renta prov.", "percentilRenta", function (v) { return v == null ? "—" : "P" + v; }, "max"],
     ["Pisos turísticos", "turisticas", function (v) { return v == null ? "—" : fmtP(v); }, "min"],
+    ["Delitos /1.000 hab.", "crimenTasa", function (v, it) { return v == null ? "—" : fmtN(v, 1) + (it.crimenProv ? " <span style='color:#6b7280'>(prov. " + fmtN(it.crimenProv, 1) + ")</span>" : ""); }, "min"],
+    ["Delitos último año", "crimenVar", function (v) { return v == null ? "—" : signo(v, 1) + " %"; }, "min"],
+    ["Año del edificio", "edificioAno", function (v) { return v || "—"; }, "max"],
     ["Servicios ≤ 10 min", "servicios"], ["Súper andando", "supermercadoMin", function (v) { return v == null ? "—" : v + " min"; }, "min"],
     ["En coche", "cocheMin", function (v, it) { return v == null ? "—" : v + " min" + (it.cocheA ? " <span style='color:#6b7280'>a " + esc(it.cocheA.replace(/\s*\(.*\)/, "")) + "</span>" : ""); }, "min"],
     ["€/m² zona", "precioZonaM2", function (v) { return v ? fmtN(v) + " €" : "—"; }],
@@ -1504,7 +1626,8 @@
     ov.className = "izk-ov";
     ov.id = "izk-ov";
     var h = "<div class='izk-box'><div class='izk-head'><span class='t'>⚖ Comparador · " + l.length + " vivienda" + (l.length === 1 ? "" : "s") + "</span>" +
-      "<button class='izk-csv'>Exportar CSV</button><button class='izk-json'>Exportar JSON</button><button class='izk-txt'>Copiar resumen</button>" +
+      "<button class='izk-csv'>Exportar CSV</button><button class='izk-json'>Exportar JSON</button><button class='izk-imp'>Importar</button>" +
+      "<button class='izk-txt'>Copiar resumen</button><button class='izk-aj'>⚙ Ajustes</button>" +
       "<button class='izk-cerrar'>Cerrar ✕</button></div><div class='izk-body'>";
     if (!l.length) {
       h += "<div class='izk-vacio'>Aún no has guardado nada. En cada ficha, pulsa <b>☆ Guardar para comparar</b>.</div>";
@@ -1541,6 +1664,8 @@
       }
       if (t.closest(".izk-csv")) { descargar("comparador-idealista.csv", aCSV(comparador()), "text/csv"); return; }
       if (t.closest(".izk-json")) { descargar("comparador-idealista.json", JSON.stringify(comparador(), null, 2), "application/json"); return; }
+      if (t.closest(".izk-imp")) { importarFichero(function () { abrirComparador(); if (S) pintar(); }); return; }
+      if (t.closest(".izk-aj")) { cerrarComparador(); abrirAjustes(); return; }
       if (t.closest(".izk-txt")) {
         var txt = aTexto(comparador());
         (navigator.clipboard ? navigator.clipboard.writeText(txt) : Promise.reject()).then(function () {
@@ -1564,7 +1689,7 @@
   }
   function aCSV(l) {
     var cols = ["titulo", "ubicacion", "unidad", "url", "nota", "zona", "dana", "patricova", "precio", "m2", "eurM2", "vsZona",
-      "precioFinal", "cash", "cuota", "esfuerzo", "rentaPersona", "percentilRenta", "turisticas", "servicios", "supermercadoMin",
+      "precioFinal", "cash", "cuota", "esfuerzo", "rentaPersona", "percentilRenta", "turisticas", "crimenTasa", "crimenProv", "crimenVar", "edificioAno", "servicios", "supermercadoMin",
       "cocheMin", "cocheA", "precioZonaM2", "varAnualZona", "alquilerZonaM2", "apunte", "fecha"];
     function c(v) { v = v == null ? "" : String(v); return /[";\n]/.test(v) ? '"' + v.replace(/"/g, '""') + '"' : v; }
     // separador ";" y BOM: Excel en español lo abre bien a la primera
@@ -1753,6 +1878,7 @@
       if (exacta) tareas.push(tarea(rentaLigera(g.lat, g.lng), "renta"));
       tareas.push(tarea(serviciosLocal(g.lat, g.lng), "servicios"));
       if (g.provincia) tareas.push(tarea(precioZona({ items: ["", g.muni, g.provincia], provincia: g.provincia }), "precio"));
+      if (window.__izSeguridad && g.muni) tareas.push(tarea(window.__izSeguridad.consultar(g.muni, g.provincia), "crimen"));
       return Promise.all(tareas);
     }).catch(function (e) { T.error = e.message; pintarTarjeta(T); });
   }
@@ -1799,7 +1925,7 @@
     }
   }
 
-  var CRIT = [["zona", "Tu zona"], ["inund", "Inundación"], ["renta", "Renta"], ["turisticos", "Pisos turísticos"],
+  var CRIT = [["zona", "Tu zona"], ["inund", "Inundación"], ["crimen", "Criminalidad"], ["renta", "Renta"], ["turisticos", "Pisos turísticos"],
               ["servicios", "Servicios"], ["coche", "Coche"], ["precio", "Precio/m²"], ["esfuerzo", "Esfuerzo"]];
   function pintarTarjeta(T) {
     var art = T.art;
@@ -1847,7 +1973,7 @@
 
   var LS_FILTROS = "izl_filtros";
   function filtros() {
-    return lsGet(LS_FILTROS, null) || { min: 0, rojas: false, verdes: false, inund: false, tur: 0, renta: 0 };
+    return lsGet(LS_FILTROS, null) || { min: 0, rojas: false, verdes: false, inund: false, tur: 0, renta: 0, crimen: false };
   }
   // ¿por qué se oculta esta tarjeta? (null = se ve). Sin dato → no se oculta,
   // salvo "solo verdes", que exige estar en una zona verde
@@ -1858,6 +1984,8 @@
     if (f.verdes && v !== "bien") return "no está en zona verde";
     if (f.rojas && (v === "mal" || v === "muy_mal")) return "zona roja";
     if (f.inund && S2.inund && (S2.inund.danaDentro || S2.inund.patri.length)) return "inundable";
+    if (f.crimen && S2.crimen && !S2.crimen.sinDato && S2.crimen.tasaProv && S2.crimen.tasa > S2.crimen.tasaProv)
+      return "más delitos que su provincia (" + fmtN(S2.crimen.tasa, 1) + " vs " + fmtN(S2.crimen.tasaProv, 1) + " por 1.000 hab.)";
     if (f.tur && S2.renta && S2.renta.turisticas != null && S2.renta.turisticas > f.tur) return "pisos turísticos " + fmtP(S2.renta.turisticas) + " (máx. " + f.tur + " %)";
     if (f.renta && S2.renta && S2.renta.pctProv != null && S2.renta.pctProv < f.renta) return "renta del barrio por debajo del " + f.renta + " % (P" + S2.renta.pctProv + ")";
     if (f.min && T.nota != null && T.nota < f.min) return "nota " + fmtN(T.nota, 1) + " (mín. " + String(f.min).replace(".", ",") + ")";
@@ -1899,12 +2027,14 @@
     }
     bar.innerHTML = "<div class='fila'><span class='t'>🧭 Nota de zona</span><span class='s'>" + hechas + "/" + L.tarjetas.length +
       " calculadas · " + buenas + " buenas (≥ 6,5)" + (ocultas ? " · <b>" + ocultas + " plegadas por tus filtros</b> <a href='#' class='izl-quitar'>quitar filtros</a>" : "") + "</span>" +
+      "<button class='izl-b izl-aj' title='Pesos de la nota, hipoteca, copia de seguridad'>⚙ Ajustes</button>" +
       "<button class='izl-b izl-ordenar'>" + (L.ordenNota === "desc" ? "Nota: mejor primero ↓" : L.ordenNota === "asc" ? "Nota: peor primero ↑" : "Ordenar por nota ↓") + "</button></div>" +
       "<div class='fila filtros'>" +
       "<label>Nota mínima <select data-f='min'>" + opciones([0, 5, 6, 6.5, 7, 8], f.min, function (v) { return v ? "≥ " + String(v).replace(".", ",") : "cualquiera"; }) + "</select></label>" +
       "<label><input type='checkbox' data-f='rojas'" + (f.rojas ? " checked" : "") + "> Ocultar zonas rojas</label>" +
       "<label><input type='checkbox' data-f='verdes'" + (f.verdes ? " checked" : "") + "> Solo zonas verdes</label>" +
       "<label><input type='checkbox' data-f='inund'" + (f.inund ? " checked" : "") + "> Ocultar inundables</label>" +
+      "<label><input type='checkbox' data-f='crimen'" + (f.crimen ? " checked" : "") + "> Ocultar más delitos que su provincia</label>" +
       "<label>Pisos turísticos <select data-f='tur'>" + opciones([0, 1, 3, 5, 10], f.tur, function (v) { return v ? "≤ " + v + " %" : "da igual"; }) + "</select></label>" +
       "<label>Renta del barrio <select data-f='renta'>" + opciones([0, 25, 50, 75], f.renta, function (v) { return v ? "más que el " + v + " %" : "da igual"; }) + "</select></label>" +
       "</div>";
@@ -2016,6 +2146,7 @@
       return;
     }
     if (t.closest(".izl-ordenar")) { activarOrdenNota(); return; }
+    if (t.closest(".izl-aj")) { abrirAjustes(); return; }
 
   }
 
@@ -2060,12 +2191,35 @@
     "#izl-bar .izl-b.on{background:#fde047 !important;color:#422006 !important;}"
   ].join("\n");
 
+  // API para automatizar (p. ej. un navegador programado en el minipc que
+  // abre tus búsquedas y manda por Telegram las mejores): estado y tarjetas
+  window.__izListado = {
+    estado: function () {
+      var hechas = L.tarjetas.filter(function (T) { return (T.nota != null && !T.pend) || T.error; }).length;
+      return { total: L.tarjetas.length, calculadas: hechas, pendientes: L.tarjetas.length - hechas,
+               listo: L.tarjetas.length > 0 && hechas === L.tarjetas.length, version: VERSION };
+    },
+    tarjetas: function () {
+      return L.tarjetas.map(function (T) {
+        var P = T.S ? puntuar(T.S) : null, r = T.S ? resumen(T.S, P) : { pro: [], contra: [] };
+        return {
+          id: T.id, url: T.url, titulo: T.titulo, precio: T.precio, m2: T.m2, obraNueva: T.obra,
+          nota: P && P.total != null ? Math.round(P.total * 10) / 10 : null,
+          etiqueta: P ? etiquetaTotal(P.total, T.S)[0] : null, notas: P ? P.notas : null,
+          pro: r.pro, contra: r.contra, ubicacion: T.geo ? T.geo.prec : null,
+          municipio: T.geo ? T.geo.muni : null, ocultaPorFiltro: T.oculta || null, error: T.error || null
+        };
+      });
+    }
+  };
+
   var listadoListo = false;
   function arrancarListado() {
     var arts = [].slice.call(document.querySelectorAll("article.item[data-element-id]"));
     if (!arts.length) return;
     if (!listadoListo) {
       listadoListo = true;
+      ponerCSS(); // comparador y ajustes también se abren desde el listado
       var st = document.createElement("style");
       st.textContent = CSS_LISTADO;
       (document.head || document.documentElement).appendChild(st);
@@ -2099,6 +2253,154 @@
     pintarBarra();
     siguiente();
   }
+
+  // =================================================================
+  // ⚙ AJUSTES (se guardan en el navegador) y copia de seguridad
+  // =================================================================
+  var CLAVES_COPIA = ["izb_ajustes", "iz_pf_cfg", "izb_destinos", "izl_filtros", "izb_comparador"];
+  function copiaCompleta() {
+    var o = { tipo: "idealista-zonas-copia", version: VERSION, fecha: new Date().toISOString(), datos: {}, checklists: {} };
+    CLAVES_COPIA.forEach(function (k) { var v = lsGet(k, null); if (v != null) o.datos[k] = v; });
+    for (var i = 0; i < localStorage.length; i++) {
+      var k = localStorage.key(i);
+      if (k && k.indexOf("izb_check:") === 0) o.checklists[k] = lsGet(k, {});
+    }
+    return o;
+  }
+  // une comparadores: lo de los dos, sin duplicar; las notas escritas se suman
+  function fusionarComparador(otro) {
+    var l = comparador();
+    (otro || []).forEach(function (it) {
+      var ya = l.filter(function (x) { return x.url === it.url; })[0];
+      if (!ya) { l.push(it); return; }
+      if (it.apunte && (ya.apunte || "").indexOf(it.apunte) === -1) ya.apunte = (ya.apunte ? ya.apunte + "\n" : "") + it.apunte;
+    });
+    lsSet(LS_CMP, l);
+    return l.length;
+  }
+  function importarFichero(despues) {
+    var inp = document.createElement("input");
+    inp.type = "file"; inp.accept = ".json,application/json";
+    inp.addEventListener("change", function () {
+      var f = inp.files && inp.files[0];
+      if (!f) return;
+      f.text().then(function (txt) {
+        var d = JSON.parse(txt), msg;
+        if (Array.isArray(d)) {
+          msg = "Comparador fusionado: " + fusionarComparador(d) + " viviendas.";
+        } else if (d && d.tipo === "idealista-zonas-copia") {
+          Object.keys(d.datos || {}).forEach(function (k) {
+            if (k === LS_CMP) fusionarComparador(d.datos[k]);
+            else if (CLAVES_COPIA.indexOf(k) !== -1) lsSet(k, d.datos[k]);
+          });
+          Object.keys(d.checklists || {}).forEach(function (k) { if (k.indexOf("izb_check:") === 0) lsSet(k, d.checklists[k]); });
+          msg = "Copia importada (" + (d.fecha || "").slice(0, 10) + "): ajustes, simulación, destinos, filtros, checklists y comparador fusionado.";
+        } else throw new Error("no es un fichero de esta extensión");
+        aplicarCambiosAjustes();
+        if (despues) despues(msg);
+        avisar(msg);
+      }).catch(function (e) { avisar("No se pudo importar: " + e.message); });
+    });
+    inp.click();
+  }
+  function avisar(msg) {
+    var a = document.createElement("div");
+    a.className = "izk-toast";
+    a.textContent = msg;
+    document.body.appendChild(a);
+    setTimeout(function () { a.remove(); }, 4500);
+  }
+  // recalcular todo lo pintado con los ajustes nuevos
+  function aplicarCambiosAjustes() {
+    if (window.__izpf && window.__izpf.repintar) window.__izpf.repintar();
+    if (S) pintar();
+    L.tarjetas.forEach(function (T) { if (T.S) pintarTarjeta(T); });
+    pintarBarra();
+    actualizarFab();
+  }
+
+  var CRIT_AJ = [["zona", "Tu zona (verde / rojo)"], ["inund", "Inundación (DANA, PATRICOVA)"], ["crimen", "Criminalidad oficial del municipio"],
+    ["renta", "Renta del barrio"], ["turisticos", "Pisos turísticos"], ["servicios", "Servicios a pie"],
+    ["coche", "Tiempo en coche al destino principal"], ["precio", "Precio €/m² frente a la zona"], ["esfuerzo", "Esfuerzo (cuota / neto)"]];
+  function abrirAjustes() {
+    cerrarAjustes();
+    var A = ajustes(), pf = window.__izpf ? window.__izpf.cfg() : null, f = filtros();
+    var ov = document.createElement("div");
+    ov.className = "izk-ov"; ov.id = "izj-ov";
+    var h = "<div class='izk-box izj'><div class='izk-head'><span class='t'>⚙ Ajustes · nota de zona</span>" +
+      "<button class='izj-exp'>Exportar todo</button><button class='izj-imp'>Importar</button><button class='izj-cerrar'>Cerrar ✕</button></div><div class='izk-body'>";
+    h += "<div class='izj-grid'><section><h3>Qué os importa (pesos de la nota)</h3><p class='izj-m'>0 = no cuenta · 3 = lo que más pesa. Se aplica en fichas, listados, filtros y comparador.</p>";
+    CRIT_AJ.forEach(function (c) {
+      var v = A.pesos[c[0]];
+      h += "<label class='izj-peso'><span>" + c[1] + "</span><input type='range' min='0' max='3' step='0.5' data-peso='" + c[0] + "' value='" + v + "'>" +
+        "<b>" + String(v).replace(".", ",") + "</b></label>";
+    });
+    h += "<p><button class='izj-btn izj-reset'>Restablecer pesos</button></p>" +
+      "<h3>Reglas que mandan</h3>" +
+      "<label class='izj-chk'><input type='checkbox' data-aj='topeDana'" + (A.topeDana ? " checked" : "") + "> Si se inundó en la DANA, nota máxima 3,5</label>" +
+      "<label class='izj-chk'><input type='checkbox' data-aj='topeRoja'" + (A.topeRoja ? " checked" : "") + "> Si está en una zona roja tuya, nota máxima 4,9</label>" +
+      "<label class='izj-chk'>Avisar de edificio antiguo si es anterior a <input type='number' data-aj='anioViejo' min='1900' max='2025' value='" + A.anioViejo + "' style='width:80px'></label>" +
+      "</section><section><h3>Vuestra hipoteca</h3>";
+    if (pf) {
+      [["neto", "Neto mensual del hogar", "€/mes", 100], ["entrada", "Entrada", "%", 5], ["plazo", "Plazo", "años", 1], ["interes", "Interés (TIN)", "%", 0.1],
+       ["comunidad", "Comunidad", "€/mes", 5], ["ibi", "IBI", "€/año", 50]].forEach(function (c) {
+        h += "<label class='izj-campo'><span>" + c[1] + "</span><input type='number' data-pf='" + c[0] + "' step='" + c[3] + "' value='" + pf[c[0]] + "'><i>" + c[2] + "</i></label>";
+      });
+    }
+    h += "<h3>Filtros de los listados</h3><p class='izj-m'>Se cambian también desde la barra de cada listado.</p><ul class='izj-ul'>" +
+      "<li>Nota mínima: " + (f.min ? String(f.min).replace(".", ",") : "cualquiera") + "</li>" +
+      "<li>Zonas: " + (f.verdes ? "solo verdes" : f.rojas ? "ocultar rojas" : "todas") + "</li>" +
+      "<li>Inundables: " + (f.inund ? "ocultas" : "se muestran") + " · Más delitos que su provincia: " + (f.crimen ? "ocultos" : "se muestran") + "</li>" +
+      "<li>Pisos turísticos: " + (f.tur ? "≤ " + f.tur + " %" : "da igual") + " · Renta: " + (f.renta ? "> P" + f.renta : "da igual") + "</li></ul>" +
+      "<h3>Destinos en coche</h3><ul class='izj-ul'>" + destinos().map(function (d) { return "<li>" + (d.principal ? "★ " : "") + esc(d.n) + "</li>"; }).join("") +
+      "</ul><p class='izj-m'>Se añaden y quitan en el bloque «En coche» de cualquier ficha.</p>" +
+      "<h3>Copia de seguridad</h3><p class='izj-m'>«Exportar todo» guarda ajustes, simulación, destinos, filtros, checklists y comparador en un .json. " +
+      "Al importarlo en otro navegador (el de tu pareja), el comparador se FUSIONA: no se pierde nada de ninguno.</p>" +
+      "</section></div></div></div>";
+    ov.innerHTML = h;
+    ov.addEventListener("click", function (ev) {
+      var t = ev.target;
+      if (t === ov || t.closest(".izj-cerrar")) { cerrarAjustes(); return; }
+      if (t.closest(".izj-exp")) { descargar("idealista-zonas-copia-" + new Date().toISOString().slice(0, 10) + ".json", JSON.stringify(copiaCompleta(), null, 2), "application/json"); return; }
+      if (t.closest(".izj-imp")) { importarFichero(function () { abrirAjustes(); }); return; }
+      if (t.closest(".izj-reset")) {
+        var a0 = lsGet(LS_AJ, null) || {}; delete a0.pesos; lsSet(LS_AJ, a0);
+        aplicarCambiosAjustes(); abrirAjustes(); return;
+      }
+    });
+    ov.addEventListener("input", function (ev) {
+      var t = ev.target, a = lsGet(LS_AJ, null) || {};
+      if (t.hasAttribute("data-peso")) {
+        a.pesos = a.pesos || {};
+        a.pesos[t.getAttribute("data-peso")] = parseFloat(t.value);
+        t.nextElementSibling.textContent = t.value.replace(".", ",");
+        lsSet(LS_AJ, a);
+        aplicarCambiosAjustes();
+      }
+    });
+    ov.addEventListener("change", function (ev) {
+      var t = ev.target, a = lsGet(LS_AJ, null) || {};
+      if (t.hasAttribute("data-aj")) {
+        a[t.getAttribute("data-aj")] = t.type === "checkbox" ? t.checked : parseFloat(t.value);
+        lsSet(LS_AJ, a);
+        aplicarCambiosAjustes();
+      }
+      if (t.hasAttribute("data-pf") && window.__izpf) {
+        var c = window.__izpf.cfg(), v = parseFloat(t.value);
+        if (!isNaN(v)) { c[t.getAttribute("data-pf")] = v; lsSet("iz_pf_cfg", c); }
+        aplicarCambiosAjustes();
+      }
+    });
+    document.addEventListener("keydown", escAjustes);
+    document.body.appendChild(ov);
+  }
+  function escAjustes(ev) { if (ev.key === "Escape") cerrarAjustes(); }
+  function cerrarAjustes() {
+    var ov = document.getElementById("izj-ov");
+    if (ov) ov.remove();
+    document.removeEventListener("keydown", escAjustes);
+  }
+  window.__izAjustes = { abrir: abrirAjustes, copia: copiaCompleta };
 
   // =================================================================
   // ARRANQUE
@@ -2163,7 +2465,8 @@
     cacheSet("tarj:" + m[2], { lat: coords.lat, lng: coords.lng, prec: "portal",
       muni: ub.items.length > 1 ? ub.items[ub.items.length - 2] : "", provincia: ub.provincia }, 365);
     S = { coords: coords, ub: ub, anuncio: datosAnuncio(), err: {},
-          zona: zonaPropia(coords.lat, coords.lng), inund: null, renta: null, servicios: null, coche: null, precio: null };
+          zona: zonaPropia(coords.lat, coords.lng), inund: null, renta: null, servicios: null, coche: null, precio: null,
+          crimen: null, edificio: null };
     log("v" + VERSION + " en " + coords.lat + "," + coords.lng + " · " + ub.items.join(" | "));
     pintar();
 
@@ -2174,6 +2477,9 @@
     lanzar("inund", inundacion(coords.lat, coords.lng));
     lanzar("renta", renta(coords.lat, coords.lng));
     lanzar("precio", precioZona(ub));
+    if (window.__izSeguridad) lanzar("crimen", window.__izSeguridad.consultar(ub.items.length > 1 ? ub.items[ub.items.length - 2] : "", ub.provincia)
+      .then(function (r) { return r || { sinDato: true, motivo: "no hay datos de criminalidad (genera criminalidad/municipios.json)" }; }));
+    if (window.__izCatastro) lanzar("edificio", window.__izCatastro.edificio(coords.lat, coords.lng));
     // los servicios dan el hospital más cercano, que luego va a la ruta en coche
     recargarCoche();
     servicios(coords.lat, coords.lng).then(function (s) { S.servicios = s; fin(); if (s.mejor.hospital) recargarCoche(); })

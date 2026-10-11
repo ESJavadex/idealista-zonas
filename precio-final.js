@@ -13,7 +13,7 @@
 (function () {
   "use strict";
 
-  var VERSION = "2.1.0"; // se canta en consola: así sabemos qué build corre de verdad
+  var VERSION = "2.2.0"; // se canta en consola: así sabemos qué build corre de verdad
 
   // ------------------------------------------------------------- ajustes
   var LS_CFG = "iz_pf_cfg";   // valores guardados
@@ -907,7 +907,13 @@
   }
 
   // para barrio.js (puntuación, comparador): mismo cálculo y misma config
-  window.__izpf = { calcular: calcular, cfg: cfg, esObraNueva: esObraNueva };
+  window.__izpf = { calcular: calcular, cfg: cfg, esObraNueva: esObraNueva,
+                   repintar: function () { repintar(); document.querySelectorAll(".izpf-panel").forEach(function (p) {
+                     var a = p.__izpfArgs; if (!a) return;
+                     var n = crearPanel(a.precio, a.obra, cfg(), a.titulo, a.m2);
+                     n.className = p.className; n.__izpfFila = p.__izpfFila; n.style.display = p.style.display;
+                     p.replaceWith(n);
+                   }); } };
   // barrio.js publica el €/m² de la zona → columna €/m² y panel
   window.addEventListener("iz_zona", function () {
     document.querySelectorAll(".table__row").forEach(function (f) { if (f.__izpfCeldas) pintarCeldas(f); });

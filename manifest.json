@@ -1,8 +1,8 @@
 {
   "manifest_version": 3,
   "name": "Idealista Zonas · ¿comprar aquí?",
-  "version": "2.1.0",
-  "description": "Para buscar casa en idealista sin conocer la ciudad: tus zonas verde/rojo y capas en el mapa (DANA 2024, PATRICOVA, renta, pisos turísticos), precio real con impuestos e hipoteca, nota de 0 a 10 de cada vivienda (ficha y listados, con filtros y orden por nota) y comparador exportable.",
+  "version": "2.2.0",
+  "description": "Para buscar casa en idealista sin conocer la ciudad: tus zonas y capas en el mapa (DANA 2024, PATRICOVA, renta, pisos turísticos), precio real e hipoteca, nota de 0 a 10 de cada vivienda (inundación, criminalidad oficial, renta, servicios, coche, precio, Catastro…) en fichas y listados con filtros y orden, ajustes de pesos y comparador exportable.",
   "content_scripts": [
     {
       "matches": [
@@ -15,6 +15,8 @@
         "hook.js",
         "capas.js",
         "precio-final.js",
+        "seguridad.js",
+        "catastro.js",
         "barrio.js"
       ],
       "run_at": "document_start",
@@ -38,7 +40,8 @@
   "web_accessible_resources": [
     {
       "resources": [
-        "servicios/*.json"
+        "servicios/*.json",
+        "criminalidad/*.json"
       ],
       "matches": [
         "*://*.idealista.com/*"

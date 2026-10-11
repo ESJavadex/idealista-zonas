@@ -10,14 +10,20 @@ anuncio no cuenta:
 - 💶 **Precio real** en cada ficha: impuestos, gastos, cash necesario, cuota,
   esfuerzo y calendario de pagos, también por cada vivienda de una promoción.
 - 🧭 **Nota de 0 a 10** de cada vivienda con resumen a favor / a vigilar:
-  inundación, renta del barrio, servicios a pie, tiempo en coche, €/m² frente
-  a la zona, pisos turísticos, alquilar vs comprar y checklist.
+  inundación, **criminalidad oficial** (y su evolución), renta del barrio,
+  servicios a pie, tiempo en coche (y enlaces a transporte público), €/m²
+  frente a la zona, pisos turísticos, alquilar vs comprar, el **edificio según
+  el Catastro** y checklist. Los **pesos los decidís vosotros** en ⚙ Ajustes.
 - 📋 **En los listados**: nota en cada tarjeta, **filtros** (zonas rojas,
   inundables, pisos turísticos, renta…) y **orden por nota** ↑↓.
-- ⚖️ **Comparador** de las viviendas que guardes, exportable a CSV/JSON.
+- ⚖️ **Comparador** de las viviendas que guardes, exportable a CSV/JSON, y
+  **copia de seguridad** que se importa en otro navegador fusionando lo de los dos.
+- 🤖 **Automatizable**: la página expone `window.__izListado` para que un
+  navegador programado abra vuestras búsquedas y os mande las mejores.
 
 Sin permisos de navegador. Todos los datos salen de fuentes públicas (INE,
-Generalitat, IGN, OpenStreetMap, OSRM y los informes de precios de idealista)
+Ministerio del Interior, Catastro, Generalitat, IGN, OpenStreetMap, OSRM y los
+informes de precios de idealista)
 y se guardan en caché en tu navegador.
 
 > **Nota:** el repositorio **no incluye tus zonas** (los veredictos son
@@ -183,23 +189,35 @@ y 8 bloques que se despliegan al pulsarlos:
 |---|---|
 | Tu zona | tu `zonas.js` (verde/naranja/rojo) |
 | Inundación | huella real de la **DANA del 29-oct-2024**, municipios del Decreto 163/2024 y **PATRICOVA** (Institut Cartogràfic Valencià; solo Comunitat Valenciana) |
+| Seguridad | **criminalidad oficial** del municipio (Ministerio del Interior): delitos por 1.000 hab. frente a provincia y España, evolución 2016–2025 y tipos (hurtos, robos en domicilios, con violencia…) |
 | Renta del barrio | INE, Atlas de Distribución de Renta 2023 por **sección censal**: renta por persona y hogar, percentil en la provincia y el municipio, % menores de 18 / mayores de 65, Gini, pisos turísticos |
 | Servicios a pie | OpenStreetMap: súper (y Mercadona), farmacia, centro de salud, colegio, guardería, parque, bus, metro/tren, playa, hospital, bares |
-| En coche | OSRM (sin tráfico) a tus destinos; añade los tuyos (trabajo, familia…) y marca el principal |
+| Coche | OSRM (sin tráfico) a tus destinos; añade los tuyos (trabajo, familia…) y marca el principal. Cada destino enlaza a Google Maps en **transporte público** y **con tráfico real** |
 | Precio zona | informes de precios de idealista: €/m² del municipio/distrito, evolución de 12 meses y €/m² de cada vivienda frente a la zona |
 | Alquilar vs comprar | €/m² de alquiler de la zona frente a tu coste mensual (cuota + comunidad + IBI) |
-| Antes de reservar | checklist (aval de las cantidades a cuenta, licencia, nota simple…) que se guarda por vivienda |
+| Edificio | **Catastro**: año de construcción, plantas, viviendas, superficie, cada inmueble y si los m² del anuncio encajan (en obra nueva avisa de que suele no estar catastrada) |
+| Checklist | checklist (aval de las cantidades a cuenta, licencia, nota simple…) que se guarda por vivienda |
 
-La nota pondera tu zona ×2, inundación ×2, servicios ×1,5, conexión ×1,5 y
-renta, precio, esfuerzo y pisos turísticos ×1. **Si la vivienda está dentro de
-la huella de la DANA, la nota se queda en 3,5 como mucho; si está en una zona
-que marcaste en rojo, en 4,9.**
+Por defecto, la nota pondera tu zona ×2, inundación ×2, criminalidad ×1,5,
+servicios ×1,5, coche ×1,5 y renta, precio, esfuerzo y pisos turísticos ×1.
+**Si la vivienda está dentro de la huella de la DANA, la nota se queda en 3,5
+como mucho; si está en una zona que marcaste en rojo, en 4,9.** Todo eso se
+cambia en **⚙ Ajustes** (botón ⚙ en la sección, en la barra del listado y en el
+comparador): pesos de 0 a 3 por criterio, esas dos reglas, el año a partir del
+cual un edificio cuenta como antiguo y vuestra hipoteca (neto, entrada, plazo,
+interés, comunidad, IBI). Se guarda en el navegador y se aplica al momento.
+
+**Copia de seguridad**: en ⚙ Ajustes, *Exportar todo* guarda ajustes,
+simulación, destinos, filtros, checklists y comparador en un `.json`.
+*Importar* lo restaura; el comparador se **fusiona** (lo de los dos, sin
+duplicar, sumando las notas), así cada uno puede navegar en su ordenador.
 
 **En los listados de búsqueda** (obra nueva y segunda mano) cada tarjeta lleva
 su nota rápida, con el desglose al pulsarla. La dirección del anuncio se
 geocodifica con CartoCiudad (IGN), sin pedir las fichas a idealista. Arriba
 hay una barra con **filtros** (nota mínima, ocultar zonas rojas / solo verdes,
-ocultar inundables, máximo de pisos turísticos, renta mínima del barrio) que se
+ocultar inundables, ocultar municipios con más delitos que su provincia,
+máximo de pisos turísticos, renta mínima del barrio) que se
 recuerdan (las viviendas filtradas quedan **plegadas en una línea con el
 motivo**, no desaparecen), y en el selector de orden de idealista aparece
 **«Nota 🧭»**: un clic ordena de mejor a peor (↓), otro de peor a mejor (↑).
@@ -226,6 +244,38 @@ python3 herramientas/generar_servicios.py castilla-y-leon galicia   # Valladolid
 Regiones = nombres de Geofabrik (`valencia` es la Comunitat Valenciana).
 Fuera de las regiones descargadas se usa Overpass en directo.
 
+### 🚓 Criminalidad oficial
+
+```bash
+python3 herramientas/generar_criminalidad.py      # ~40 s, toda España (1,7 MB)
+```
+
+Escribe `criminalidad/municipios.json` (incluido en el repo). Fuente: Portal
+Estadístico de Criminalidad del Ministerio del Interior (balance del 4.º
+trimestre de cada año, acumulado enero-diciembre) y padrón del INE para las
+tasas. Solo hay datos de **municipios de más de 20.000 habitantes** (antes de
+2019, solo los más grandes) y es un dato **por municipio, no por barrio**: en
+las grandes ciudades sube por turismo, ocio y comercio. La evolución a varios
+años se compara con 2019 (2020-2021 están distorsionados por la pandemia).
+
+### 🏢 Catastro
+
+`catastro.js` consulta los servicios públicos del Catastro (sin permisos: tienen
+CORS abierto): de coordenadas a la parcela más cercana, el edificio (WFS
+INSPIRE) y cada inmueble. En obra nueva y si la parcela queda a más de 25 m
+del punto del anuncio se marca como dudoso (puede ser el edificio de al lado).
+
+### 🤖 Automatizar (navegador programado)
+
+En los listados, la página expone `window.__izListado`:
+
+- `estado()` → `{ total, calculadas, pendientes, listo }`
+- `tarjetas()` → `[{ id, url, titulo, precio, m2, nota, etiqueta, notas, pro, contra, … }]`
+
+Con eso, un navegador que se abra solo (por ejemplo en un minipc, con la
+extensión cargada) puede recorrer vuestras búsquedas, esperar a `listo` y
+mandaros por Telegram los anuncios nuevos con mejor nota.
+
 ### ⚡ Caché y uso de idealista
 
 - Todo lo que se consulta (inundación, renta, precios de zona, coordenadas,
@@ -238,8 +288,9 @@ Fuera de las regiones descargadas se usa Overpass en directo.
 
 ### 🌍 Cobertura
 
-- **Toda España**: renta y pisos turísticos (INE), precio de zona (idealista),
-  coche (OSRM), tus zonas.
+- **Toda España**: renta y pisos turísticos (INE), criminalidad (municipios de
+  más de 20.000 hab.), Catastro, precio de zona (idealista), coche (OSRM), tus
+  zonas.
 - **Solo Comunitat Valenciana**: inundación (DANA 2024 y PATRICOVA).
 - **Servicios a pie**: las regiones que generes (si no, Overpass en directo).
 - Destinos en coche por defecto: València, Valladolid y Vigo (centro, estación
@@ -248,8 +299,9 @@ Fuera de las regiones descargadas se usa Overpass en directo.
 ### 🔒 Privacidad
 
 Para calcular, la extensión envía **coordenadas o direcciones de los anuncios**
-(nunca datos tuyos) a: INE, Institut Cartogràfic Valencià, CartoCiudad (IGN),
-OSRM, OpenStreetMap/Overpass y Nominatim (solo al añadir un destino). Tus
+(nunca datos tuyos) a: INE, Catastro, Institut Cartogràfic Valencià,
+CartoCiudad (IGN), OSRM, OpenStreetMap/Overpass y Nominatim (solo al añadir un
+destino). Tus
 zonas, comparador, notas y simulación no salen de tu navegador.
 
 ## 🗺️ Capas del mapa
@@ -279,11 +331,15 @@ enciende/apaga sin recargar.
 | `hook.js` | Captura los mapas de Google de idealista y pinta tus zonas |
 | `capas.js` | Panel **Capas** del mapa: DANA, PATRICOVA, renta, pisos turísticos, súper/estaciones |
 | `precio-final.js` | Precio real, columnas de la tabla de viviendas y panel de hipoteca |
-| `barrio.js` | Sección «¿Comprar aquí?» (nota, resumen, bloques), nota en listados, filtros y comparador |
+| `barrio.js` | Sección «¿Comprar aquí?» (nota, resumen, bloques), nota en listados, filtros, ⚙ Ajustes y comparador |
+| `seguridad.js` | Criminalidad oficial por municipio (`window.__izSeguridad`) |
+| `catastro.js` | Datos del edificio en el Catastro (`window.__izCatastro`) |
 | `puente.js` | Mundo ISOLATED: pasa a la página la URL de la extensión (para leer `servicios/`) |
 | `manifest.json` | Manifiesto MV3 (content scripts en el mundo MAIN, sin permisos) |
 | `herramientas/generar_zonas.py` | Genera `zonas.js` desde fuentes oficiales |
 | `herramientas/generar_servicios.py` | Genera `servicios/<región>.json` desde OpenStreetMap (Geofabrik) |
+| `herramientas/generar_criminalidad.py` | Genera `criminalidad/municipios.json` (Ministerio del Interior + INE) |
+| `criminalidad/` | Criminalidad por municipio 2016–2025 (generada, incluida en el repo) |
 | `herramientas/config.local.json` | TUS veredictos (git-ignorado) |
 | `servicios/` | Copia local de servicios por región (generada, git-ignorada) |
 | `data-src/` | Caché de descargas (GeoJSON, `.osm.pbf`; git-ignorado) |
@@ -319,7 +375,8 @@ Código: [MIT](LICENSE) — úsalo, modifícalo y compártelo libremente.
 
 Datos de terceros, consultados en directo o generados por los scripts: ©
 colaboradores de OpenStreetMap (ODbL), INE (Atlas de Distribución de Renta de
-los Hogares; viviendas turísticas), Institut Cartogràfic Valencià /
+los Hogares; viviendas turísticas; padrón), Ministerio del Interior (Balance de
+Criminalidad), Dirección General del Catastro, Institut Cartogràfic Valencià /
 Generalitat Valenciana (DANA 2024, PATRICOVA; CC BY 4.0), IGN – CartoCiudad
 (CC BY 4.0), OSRM (servidor de demostración) e informes de precios de
 idealista. Este proyecto no está afiliado a ninguno de ellos.
