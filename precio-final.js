@@ -514,63 +514,85 @@
     return false;
   }
 
+  function log(m) {
+    try { console.log("[idealista-zonas/precio-final] " + m); } catch (e) {}
+  }
+
   function buscarPrecios() {
     if (!encendido() || !esDetalle()) return;
-    ponerCSS();
+    try {
+      ponerCSS();
 
-    // 1) selectores habituales del precio principal
-    ["#priceContainer", ".info-data.price", ".price", ".js-price", ".txt-price"]
-      .forEach(function (sel) {
-        try {
-          document.querySelectorAll(sel).forEach(function (el) {
-            if (!el.__izpf && !familiaConBadge(el)) inyectarEn(el);
-          });
-        } catch (e) {}
-      });
+      // 1) selectores habituales del precio principal
+      ["#priceContainer", ".info-data.price", ".price", ".js-price", ".txt-price"]
+        .forEach(function (sel) {
+          try {
+            document.querySelectorAll(sel).forEach(function (el) {
+              if (!el.__izpf && !familiaConBadge(el)) inyectarEn(el);
+            });
+          } catch (e) { log("error selector " + sel + ": " + e.message); }
+        });
 
-    // 2) barrido SIEMPRE: coge la tabla "pisos disponibles en venta" y
-    //    cualquier otro precio exacto aunque idealista cambie las clases
-    var todos = document.querySelectorAll("div,span,td,p,a,li");
-    var n = 0;
-    for (var i = 0; i < todos.length && n < 80; i++) {
-      var el = todos[i];
-      if (el.children.length > 1 || el.__izpf) continue;
-      // no marcar precios dentro de nuestros paneles ni duplicar familia
-      if (el.closest && el.closest(".izpf-panel")) continue;
-      if (familiaConBadge(el)) continue;
-      // "242.000 €" o "Desde 242.000 €" exactos, texto corto
-      if (esPrecio(el.textContent) && el.textContent.trim().length <= 20) {
-        // solo si va en negrita o dentro del área de info/tablas
-        var fw = parseInt((window.getComputedStyle(el).fontWeight || "0"), 10);
-        if (fw >= 600 || el.closest(".info, .container, main, table")) {
-          inyectarEn(el);
-          n++;
+      // 2) barrido SIEMPRE: coge la tabla "pisos disponibles en venta" y
+      //    cualquier otro precio exacto aunque idealista cambie las clases
+      var todos = document.querySelectorAll("div,span,td,p,a,li");
+      var n = 0, candidatos = 0;
+      for (var i = 0; i < todos.length && n < 80; i++) {
+        var el = todos[i];
+        if (el.children.length > 1 || el.__izpf) continue;
+        // no marcar precios dentro de nuestros paneles ni duplicar familia
+        if (el.closest && el.closest(".izpf-panel")) continue;
+        if (familiaConBadge(el)) continue;
+        // "242.000 €" o "Desde 242.000 €" exactos, texto corto
+        if (esPrecio(el.textContent) && el.textContent.trim().length <= 20) {
+          candidatos++;
+          // solo si va en negrita o dentro del área de info/tablas
+          var fw = parseInt((window.getComputedStyle(el).fontWeight || "0"), 10);
+          if (fw >= 600 || el.closest(".info, .container, main, table")) {
+            inyectarEn(el);
+            n++;
+          }
         }
       }
+      var puestos = document.querySelectorAll(".izpf-badge").length;
+      if (puestos > 0) log(puestos + " precio(s) final(es) visibles (candidatos: " + candidatos + ")");
+      else log("detalle sin inyectar — candidatos:" + candidatos + " elementos:" + todos.length);
+    } catch (e) {
+      log("ERROR en buscarPrecios: " + e.message + "\n" + (e.stack || ""));
     }
   }
 
   // arrancar cuando haya DOM
   function iniciar() {
-    // ajusta CCAA la primera vez por la provincia de la página
-    var c = cfg();
-    var ccaa = detectarCCAA();
-    if (ccaa && !window.localStorage.getItem(LS_CFG)) {
-      var hallada = ITP_CCAA.find(function (p) { return p[0] === ccaa; });
-      c.ccaa = ccaa;
-      if (hallada) c.itp = hallada[1];
-      guardarCfg(c);
+    try {
+      // ajusta CCAA la primera vez por la provincia de la página
+      var c = cfg();
+      var ccaa = detectarCCAA();
+      if (ccaa && !window.localStorage.getItem(LS_CFG)) {
+        var hallada = ITP_CCAA.find(function (p) { return p[0] === ccaa; });
+        c.ccaa = ccaa;
+        if (hallada) c.itp = hallada[1];
+        guardarCfg(c);
+      }
+      log("arrancando en " + location.href);
+
+      // idealista inyecta la tabla de unidades dinámicamente y navega en SPA:
+      var t = null;
+      new MutationObserver(function () {
+        clearTimeout(t);
+        t = setTimeout(buscarPrecios, 400);
+      }).observe(document.body, { childList: true, subtree: true });
+
+      window.addEventListener("iz_urlchange", buscarPrecios); // lo dispara hook.js
+
+      // reintentos por si el contenido llega tarde (o el observer no dispara)
+      [500, 1000, 2000, 4000, 8000, 15000].forEach(function (ms) {
+        setTimeout(buscarPrecios, ms);
+      });
+      buscarPrecios();
+    } catch (e) {
+      log("ERROR en iniciar: " + e.message + "\n" + (e.stack || ""));
     }
-    buscarPrecios();
-
-    // idealista inyecta la tabla de unidades dinámicamente y navega en SPA:
-    var t = null;
-    new MutationObserver(function () {
-      clearTimeout(t);
-      t = setTimeout(buscarPrecios, 400);
-    }).observe(document.body, { childList: true, subtree: true });
-
-    window.addEventListener("iz_urlchange", buscarPrecios); // lo dispara hook.js
   }
 
   if (document.readyState === "loading") {
