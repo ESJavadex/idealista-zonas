@@ -23,7 +23,7 @@
   if (window.top !== window) return; // solo el documento principal
   if (!/idealista\./.test(location.hostname) && !window.__IZ_TEST) return; // __IZ_TEST: página de pruebas local
 
-  var VERSION = "2.2.1";
+  var VERSION = "2.3.0";
   var RE_DETALLE = /\/(obra-nueva|inmueble)\/(\d+)/;
 
   // ----------------------------------------------------------------- utils

@@ -7,6 +7,10 @@
 //   · Riesgo de inundación PATRICOVA    (ArcGIS REST, GVA)
 //   · Renta por sección censal          (INE, ADRH 2023) — zoom ≥ 11
 //   · Pisos turísticos por sección      (INE, mayo 2026) — zoom ≥ 11
+//   · Peligrosidad: criminalidad oficial por municipio (Interior; criminalidad/
+//     municipios.json) con selector de tipo (hurtos, robos…) — zoom ≥ 9
+//   · Población extranjera: continente predominante por municipio (padrón;
+//     extranjeros/municipios.json) o % por sección (INE, censo 2025)
 //   · Supermercados y estaciones        (OpenStreetMap: copia local o Overpass) — zoom ≥ 14
 //
 // Se ejecuta en el mundo MAIN, después de hook.js (usa window.__izMapas, que
@@ -195,12 +199,12 @@
   // suficiente: así mover el mapa no repite consultas. OJO: la vista normal de
   // una ciudad en idealista es zoom 12 (~0,4° de ancho): tiene que caber ahí
   var CELDA = 0.05;
-  function celdasVisibles(map) {
-    var b = map.getBounds();
+  function celdasVisibles(map, celda) {
+    var b = map.getBounds(), C = celda || CELDA;
     if (!b) return [];
     var sw = b.getSouthWest(), ne = b.getNorthEast(), out = [];
-    var x0 = Math.floor(sw.lng() / CELDA), x1 = Math.floor(ne.lng() / CELDA);
-    var y0 = Math.floor(sw.lat() / CELDA), y1 = Math.floor(ne.lat() / CELDA);
+    var x0 = Math.floor(sw.lng() / C), x1 = Math.floor(ne.lng() / C);
+    var y0 = Math.floor(sw.lat() / C), y1 = Math.floor(ne.lat() / C);
     if ((x1 - x0 + 1) * (y1 - y0 + 1) > 80) return null; // demasiado alejado
     for (var x = x0; x <= x1; x++) for (var y = y0; y <= y1; y++) out.push([x, y]);
     return out;
@@ -217,16 +221,23 @@
     var d = this.datos.get(map), self = this;
     if (d) return d;
     d = new google.maps.Data();
-    d.setStyle(function (f) {
-      var v = f.getProperty(self.def.campo);
-      var sin = v == null;
-      return {
-        fillColor: sin ? "#9ca3af" : colorTramo(self.def.tramos, v),
-        fillOpacity: sin ? 0.12 : 0.5,
-        strokeColor: "#ffffff", strokeOpacity: 0.7, strokeWeight: 0.6,
-        zIndex: 5
-      };
-    });
+    d.setStyle(function (f) { return self.estiloDe(f); });
+    this.datos.set(map, d);
+    return this.engancharEventos(map, d);
+  };
+  CapaINE.prototype.estiloDe = function (f) {
+    if (this.def.estilo) return this.def.estilo(f);
+    var v = f.getProperty(this.def.campo);
+    var sin = v == null;
+    return {
+      fillColor: sin ? "#9ca3af" : colorTramo(this.def.tramos, v),
+      fillOpacity: sin ? 0.12 : 0.5,
+      strokeColor: "#ffffff", strokeOpacity: 0.7, strokeWeight: 0.6,
+      zIndex: 5
+    };
+  };
+  CapaINE.prototype.engancharEventos = function (map, d) {
+    var self = this;
     d.addListener("mouseover", function (e) {
       d.overrideStyle(e.feature, { strokeColor: "#111", strokeWeight: 2, strokeOpacity: 1 });
       panelLectura(self.def.texto(e.feature));
@@ -238,45 +249,57 @@
     var info = new google.maps.InfoWindow();
     this.info = info;
     d.addListener("click", function (e) {
-      info.setContent("<div style='font:13px/1.4 inherit;max-width:240px'>" + self.def.texto(e.feature) + "</div>");
+      info.setContent("<div style='font:13px/1.4 inherit;max-width:" + (self.def.anchoInfo || 240) + "px'>" + self.def.texto(e.feature, true) + "</div>");
       info.setPosition(e.latLng);
       info.open({ map: map });
     });
-    this.datos.set(map, d);
+    this.mapas = this.mapas || [];
+    this.mapas.push(map);
     this.celdas.set(map, new Set());
     this.vistos.set(map, new Set());
     return d;
   };
+  // repinta con el estilo actual (al cambiar un selector o llegar datos locales)
+  CapaINE.prototype.restilar = function () {
+    var self = this;
+    (this.mapas || []).forEach(function (m) {
+      var d = self.datos.get(m);
+      if (d) d.setStyle(function (f) { return self.estiloDe(f); }); // función nueva = repintar
+    });
+  };
   CapaINE.prototype.mostrar = function (map, on) {
     var d = this.dataDe(map);
+    if (on && this.def.alEncender) this.def.alEncender(this);
     d.setMap(on ? map : null);
     if (!on) { try { this.info.close(); } catch (e) {} panelLectura(""); }
     if (on) this.refrescar(map);
   };
+  CapaINE.prototype.on = function () { return this.def.activa ? this.def.activa() : capaOn(this.def.id); };
   CapaINE.prototype.refrescar = function (map) {
-    if (!capaOn(this.def.id)) return;
+    if (!this.on()) return;
     var z = map.getZoom() || 0;
     if (z < this.def.zoomMin) { estadoCapa(this.def.id, "acerca el mapa (zoom ≥ " + this.def.zoomMin + ")"); return; }
-    var celdas = celdasVisibles(map);
+    var C = this.def.celda || CELDA, clave = this.def.clave || "cusec";
+    var celdas = celdasVisibles(map, C);
     if (!celdas) { estadoCapa(this.def.id, "acerca un poco el mapa para verla"); return; }
     var hechas = this.celdas.get(map), self = this;
     var nuevas = celdas.filter(function (c) { return !hechas.has(c.join(",")); });
     if (!nuevas.length) { estadoCapa(this.def.id, ""); return; }
     nuevas.forEach(function (c) {
       hechas.add(c.join(","));
-      var env = [c[0] * CELDA, c[1] * CELDA, (c[0] + 1) * CELDA, (c[1] + 1) * CELDA].map(function (n) {
+      var env = [c[0] * C, c[1] * C, (c[0] + 1) * C, (c[1] + 1) * C].map(function (n) {
         return n.toFixed(5);
       }).join(",");
       var url = self.def.url + "?geometry=" + env + "&geometryType=esriGeometryEnvelope&inSR=4326&outSR=4326" +
         "&spatialRel=esriSpatialRelIntersects&outFields=" + encodeURIComponent(self.def.campos) +
-        "&returnGeometry=true&maxAllowableOffset=" + (z >= 14 ? 0.00008 : z >= 12 ? 0.0002 : 0.0004) +
+        "&returnGeometry=true&maxAllowableOffset=" + (z >= 14 ? 0.00008 : z >= 12 ? 0.0002 : z >= 10 ? 0.0004 : 0.001) +
         "&geometryPrecision=5&f=geojson";
       self.cargando++;
       estadoCapa(self.def.id, "cargando…", true);
       fetch(url).then(function (r) { return r.json(); }).then(function (gj) {
         var vistos = self.vistos.get(map);
         var feats = (gj.features || []).filter(function (f) {
-          var k = f.properties && f.properties.cusec;
+          var k = f.properties && f.properties[clave];
           if (!k || vistos.has(k)) return false;
           vistos.add(k); return true;
         });
@@ -311,6 +334,223 @@
         esc(f.getProperty("nmun")) + " · sección " + esc(f.getProperty("cusec")) + " (INE, may-2026)</span>";
     }
   });
+
+  // ------------------------------------------- datos locales de la extensión
+  // (puente.js deja la URL de la extensión en <html data-izext>)
+  var locales = {};
+  function jsonLocal(ruta) {
+    var base = document.documentElement.getAttribute("data-izext") || window.__IZ_TEST_EXT;
+    if (!base) return Promise.resolve(null);
+    if (!locales[ruta]) {
+      locales[ruta] = { d: null, p: null };
+      locales[ruta].p = fetch(base + ruta).then(function (r) { if (!r.ok) throw new Error("HTTP " + r.status); return r.json(); })
+        .then(function (d) { locales[ruta].d = d; return d; })
+        .catch(function (e) { log(ruta + ": " + e.message); delete locales[ruta]; return null; });
+    }
+    return locales[ruta].p;
+  }
+  function yaLocal(ruta) { return locales[ruta] ? locales[ruta].d : null; }
+  function fmtN(n) { try { return Math.round(n).toLocaleString("es-ES"); } catch (e) { return String(Math.round(n)); } }
+  function fmtDec(n) { return (Math.round(n * 10) / 10).toString().replace(".", ","); }
+
+  // --------------------------------------------- población extranjera
+  // % por sección censal (INE, Censo anual 2025) y reparto por continente del
+  // municipio (padrón 2022, extranjeros/municipios.json — generar_extranjeros.py)
+  var INE_CENSO = INE + "Censo_2025___Porcentaje_de_extranjeros/FeatureServer/";
+  var R_EXT = "extranjeros/municipios.json";
+  var TRAMOS_EXT = [
+    [5, "#e0ecf4", "< 5 %"],
+    [10, "#9ebcda", "5–10 %"],
+    [15, "#8c96c6", "10–15 %"],
+    [25, "#8856a7", "15–25 %"],
+    [1 / 0, "#810f7c", "> 25 %"]
+  ];
+  // continentes de origen (claves de extranjeros/municipios.json → "c")
+  var ORIGENES_EXT = [
+    ["eu", "Europa", "#2563eb"],
+    ["af", "África", "#f97316"],
+    ["am", "Latinoamérica", "#16a34a"],
+    ["as", "Asia", "#e11d48"],
+    ["oc", "Oceanía y otros", "#9ca3af"]
+  ];
+  var COLOR_ORIGEN = {};
+  ORIGENES_EXT.forEach(function (o) { COLOR_ORIGEN[o[0]] = o[2]; });
+  // reparto por continente de un municipio: [[clave, n], …] de mayor a menor
+  function origenesDe(m) {
+    var c = m.c || {};
+    return ORIGENES_EXT.map(function (o) { return [o[0], c[o[0]] || 0]; })
+      .filter(function (x) { return x[1] > 0; }).sort(function (a, b) { return b[1] - a[1]; });
+  }
+  function nombreOrigen(k) { return (ORIGENES_EXT.filter(function (o) { return o[0] === k; })[0] || ["", k])[1]; }
+  // bloque "extranjeros por continente" de un municipio
+  function htmlTop5(cumun) {
+    var d = yaLocal(R_EXT), m = d && d.municipios[cumun];
+    if (!m) return d ? "" : "<div style='color:#64748b;font-size:11px'>cargando…</div>";
+    if (!m.e) return "<div style='color:#64748b;font-size:11px'>Sin extranjeros empadronados en " + d.anio + ".</div>";
+    var org = origenesDe(m), c = m.c || {};
+    var h = "<div style='margin-top:6px;font-size:11px;color:#475569'>" + esc(m.n) + ": " + fmtN(m.e) +
+      " extranjeros (" + fmtPct(100 * m.e / m.t) + " de la población) · por continente</div>" +
+      "<div style='display:flex;height:10px;border-radius:5px;overflow:hidden;margin:3px 0 4px'>" +
+      org.map(function (o) {
+        return "<span title='" + nombreOrigen(o[0]) + "' style='width:" + (100 * o[1] / m.e).toFixed(1) + "%;background:" + COLOR_ORIGEN[o[0]] + "'></span>";
+      }).join("") + "</div>";
+    var max = org.length ? org[0][1] : 1;
+    org.forEach(function (o, i) {
+      var p = 100 * o[1] / m.e;
+      var det = o[0] === "eu" && c.ue != null ? " <span style='color:#94a3b8;font-size:10px'>(UE " + Math.round(100 * c.ue / o[1]) + "%)</span>" : "";
+      h += "<div style='display:flex;align-items:center;gap:6px;font-size:12px;margin-top:2px'>" +
+        "<span style='width:12px;text-align:right;color:#94a3b8'>" + (i + 1) + "</span>" +
+        "<span style='width:8px;height:8px;border-radius:2px;flex:none;background:" + COLOR_ORIGEN[o[0]] + "'></span>" +
+        "<span style='width:112px;white-space:nowrap'>" + nombreOrigen(o[0]) + det + "</span>" +
+        "<span style='flex:1;height:7px;background:#f1f5f9;border-radius:4px;overflow:hidden'>" +
+        "<span style='display:block;height:100%;width:" + Math.max(4, 100 * o[1] / max).toFixed(0) + "%;background:" + COLOR_ORIGEN[o[0]] + "'></span></span>" +
+        "<span style='width:76px;text-align:right;color:#334155;white-space:nowrap'>" + fmtN(o[1]) + " · <b>" + Math.round(p) + "%</b></span></div>";
+    });
+    return h + "<div style='margin-top:4px;font-size:10px;color:#94a3b8'>% sobre el total de extranjeros · padrón " + d.anio + " (INE)</div>";
+  }
+
+  // modo: "origen" (municipio, color = origen predominante) | "pct" (sección, % extranjeros)
+  var LS_EXT = "iz_capas_ext_modo";
+  function modoExt() {
+    var v = null;
+    try { v = localStorage.getItem(LS_EXT); } catch (e) {}
+    return v === "pct" ? "pct" : "origen";
+  }
+  var capaExt = new CapaINE({
+    id: "extranjeros", url: INE_CENSO + "2/query", campos: "cusec,cumun,nmun,porc_ext,porc_nac_ext,n_personas",
+    campo: "porc_ext", tramos: TRAMOS_EXT, zoomMin: 11, anchoInfo: 300,
+    activa: function () { return capaOn("extranjeros") && modoExt() === "pct"; },
+    alEncender: function (capa) { jsonLocal(R_EXT).then(function () { capa.restilar(); }); },
+    texto: function (f) {
+      var v = f.getProperty("porc_ext"), nac = f.getProperty("porc_nac_ext"), n = f.getProperty("n_personas");
+      return "<b>" + (v == null ? "sin dato" : fmtPct(v) + " extranjeros") + "</b>" +
+        (nac != null ? " · " + fmtPct(nac) + " nacidos fuera" : "") +
+        "<br><span style='color:#64748b'>" + esc(f.getProperty("nmun")) + " · sección " + esc(f.getProperty("cusec")) +
+        (n ? " · " + fmtN(n) + " hab." : "") + " (INE, censo 2025)</span>" +
+        htmlTop5(f.getProperty("cumun"));
+    }
+  });
+  var capaExtOrigen = new CapaINE({
+    id: "extranjeros", url: INE_CENSO + "1/query", campos: "cumun,nmun,porc_ext", clave: "cumun",
+    celda: 0.2, zoomMin: 9, anchoInfo: 300,
+    activa: function () { return capaOn("extranjeros") && modoExt() === "origen"; },
+    alEncender: function (capa) { jsonLocal(R_EXT).then(function () { capa.restilar(); }); },
+    estilo: function (f) {
+      var d = yaLocal(R_EXT), m = d && d.municipios[f.getProperty("cumun")];
+      var org = m && m.e ? origenesDe(m) : [];
+      if (!org.length) return { fillColor: "#9ca3af", fillOpacity: 0.06, strokeColor: "#6b7280", strokeOpacity: 0.4, strokeWeight: 0.6, zIndex: 4 };
+      // intensidad = % de extranjeros (censo 2025 si está; si no, padrón)
+      var pct = f.getProperty("porc_ext");
+      if (pct == null) pct = 100 * m.e / m.t;
+      return { fillColor: COLOR_ORIGEN[org[0][0]], fillOpacity: Math.min(0.8, 0.12 + pct / 40),
+        strokeColor: "#ffffff", strokeOpacity: 0.9, strokeWeight: 1, zIndex: 4 };
+    },
+    texto: function (f, completo) {
+      var d = yaLocal(R_EXT), m = d && d.municipios[f.getProperty("cumun")], pct = f.getProperty("porc_ext");
+      var org = m && m.e ? origenesDe(m) : [];
+      var h = "<b>" + esc(f.getProperty("nmun")) + "</b>" + (pct != null ? " · " + fmtPct(pct) + " extranjeros (censo 2025)" : "");
+      if (org.length) h += "<br>Predomina <b style='color:" + COLOR_ORIGEN[org[0][0]] + "'>" + nombreOrigen(org[0][0]) + "</b> (" +
+        Math.round(100 * org[0][1] / m.e) + "% de los extranjeros)";
+      return h + htmlTop5(f.getProperty("cumun")) +
+        (completo ? "" : "<div style='font-size:11px;color:#64748b'>Acerca y cambia a «% por sección» para ver barrio a barrio</div>");
+    }
+  });
+
+  // ------------------------------------------------- criminalidad oficial
+  // Por MUNICIPIO (Interior solo publica los de más de 20.000 habitantes):
+  // color = tasa del tipo elegido frente a la media de España
+  var R_CRIM = "criminalidad/municipios.json";
+  var LS_CRIM = "iz_capas_crim_tipo";
+  var TIPOS_CRIM = [
+    ["total", "Toda la criminalidad"], ["hurtos", "Hurtos"], ["robo_fuerza", "Robos con fuerza"],
+    ["robo_domicilio", "Robos en viviendas"], ["robo_violencia", "Robos con violencia"],
+    ["vehiculos", "Robo de vehículos"], ["lesiones", "Lesiones"], ["sexual", "Delitos sexuales"],
+    ["drogas", "Tráfico de drogas"], ["ciber", "Cibercriminalidad"]
+  ];
+  var TRAMOS_CRIM = [
+    [0.6, "#1a9850", "mucho menos (< 0,6×)"],
+    [0.85, "#91cf60", "menos (0,6–0,85×)"],
+    [1.15, "#fee08b", "como la media (±15 %)"],
+    [1.5, "#fc8d59", "más (1,15–1,5×)"],
+    [1 / 0, "#d73027", "mucho más (> 1,5×)"]
+  ];
+  function tipoCrim() {
+    var t = null;
+    try { t = localStorage.getItem(LS_CRIM); } catch (e) {}
+    return TIPOS_CRIM.some(function (x) { return x[0] === t; }) ? t : "total";
+  }
+  function nombreTipo(t) { return (TIPOS_CRIM.filter(function (x) { return x[0] === t; })[0] || ["", t])[1]; }
+  // { tasa, esp, prov, n, anio, ratio, serie[] } del municipio para el tipo
+  function datoCrim(cumun, tipo) {
+    var d = yaLocal(R_CRIM), m = d && d.municipios[cumun];
+    if (!m) return null;
+    var anios = Object.keys(m.anual).sort(), ult = anios[anios.length - 1], a = m.anual[ult];
+    if (!a || a.tasa[tipo] == null) return null;
+    var E = d.espana || {}, P = (d.provincias || {})[m.prov];
+    var esp = E[ult] && E[ult].tasa[tipo], prov = P && P.anual[ult] && P.anual[ult].tasa[tipo];
+    var ant = anios[anios.length - 2], var1 = ant && m.anual[ant].n[tipo] ? 100 * (a.n[tipo] / m.anual[ant].n[tipo] - 1) : null;
+    return {
+      nombre: m.nombre, anio: ult, tasa: a.tasa[tipo], n: a.n[tipo], pob: a.pob, esp: esp, prov: prov,
+      provNombre: P ? (P.nombre === P.nombre.toUpperCase() ? P.nombre.toLowerCase().replace(/(^|[\s\/-])\S/g, function (c) { return c.toUpperCase(); }) : P.nombre) : "", ratio: esp ? a.tasa[tipo] / esp : null, var1: var1,
+      serie: anios.map(function (y) {
+        return { periodo: y, tasa: m.anual[y].tasa[tipo],
+          tasaProv: P && P.anual[y] ? P.anual[y].tasa[tipo] : null, tasaEsp: E[y] ? E[y].tasa[tipo] : null };
+      })
+    };
+  }
+  var capaCrim = new CapaINE({
+    id: "criminalidad", url: INE_CENSO + "1/query", campos: "cumun,nmun", clave: "cumun",
+    celda: 0.2, zoomMin: 9, anchoInfo: 290,
+    alEncender: function (capa) { jsonLocal(R_CRIM).then(function () { capa.restilar(); }); },
+    estilo: function (f) {
+      var x = datoCrim(f.getProperty("cumun"), tipoCrim());
+      if (!x || x.ratio == null) {
+        return { fillColor: "#9ca3af", fillOpacity: 0.06, strokeColor: "#6b7280", strokeOpacity: 0.5, strokeWeight: 0.6, zIndex: 4 };
+      }
+      return { fillColor: colorTramo(TRAMOS_CRIM, x.ratio), fillOpacity: 0.5,
+        strokeColor: "#ffffff", strokeOpacity: 0.9, strokeWeight: 1, zIndex: 4 };
+    },
+    texto: function (f, completo) {
+      var tipo = tipoCrim(), x = datoCrim(f.getProperty("cumun"), tipo);
+      var nom = esc(f.getProperty("nmun"));
+      if (!yaLocal(R_CRIM)) return "<b>" + nom + "</b><br><span style='color:#64748b'>cargando criminalidad…</span>";
+      if (!x) return "<b>" + nom + "</b><br><span style='color:#64748b'>Sin dato oficial: Interior solo publica municipios de más de 20.000 habitantes.</span>";
+      var h = "<b>" + esc(x.nombre) + " · " + esc(nombreTipo(tipo)) + "</b><br>" +
+        "<span style='font-size:15px;font-weight:700'>" + fmtDec(x.tasa) + " ‰</span> " +
+        "<span style='color:#64748b'>(" + fmtN(x.n) + " en " + x.anio + ")</span>" +
+        (x.ratio != null ? "<br><b style='color:" + (x.ratio >= 1.15 ? "#b91c1c" : x.ratio < 0.85 ? "#15803d" : "#a16207") + "'>" +
+          fmtDec(x.ratio) + "× la media de España</b> (" + fmtDec(x.esp) + " ‰)" : "") +
+        (x.prov ? "<br><span style='color:#64748b'>Provincia de " + esc(x.provNombre) + ": " + fmtDec(x.prov) + " ‰</span>" : "") +
+        (x.var1 != null ? "<br><span style='color:" + (x.var1 > 0 ? "#b91c1c" : "#15803d") + "'>" +
+          (x.var1 > 0 ? "▲ +" : "▼ ") + fmtDec(x.var1) + " % frente a " + (x.anio - 1) + "</span>" : "");
+      if (completo) {
+        h += "<div style='margin-top:6px'>" + (window.__izSeguridad ? window.__izSeguridad.sparklineSVG(x.serie, { alto: 54 }) : "") +
+          "</div><div style='font-size:10px;color:#64748b'><span style='color:#dc2626'>━</span> municipio " +
+          "<span style='color:#f59e0b'>┅</span> provincia <span style='color:#9ca3af'>┅</span> España · " +
+          x.serie[0].periodo + "–" + x.anio + "</div>";
+        // los demás tipos, de peor a mejor frente a España
+        var otros = TIPOS_CRIM.filter(function (t) { return t[0] !== tipo && t[0] !== "total"; }).map(function (t) {
+          var y = datoCrim(f.getProperty("cumun"), t[0]);
+          return y && y.ratio != null ? [t[1], y] : null;
+        }).filter(Boolean).sort(function (a, b) { return b[1].ratio - a[1].ratio; });
+        if (otros.length) {
+          h += "<div style='margin-top:6px;font-size:11px;color:#475569'>Por tipo (× media de España, " + x.anio + ")</div>";
+          otros.forEach(function (o) {
+            var r = o[1].ratio;
+            h += "<div style='display:flex;gap:6px;font-size:12px;margin-top:1px'><span style='flex:1'>" + esc(o[0]) + "</span>" +
+              "<span style='color:#64748b'>" + fmtDec(o[1].tasa) + " ‰</span>" +
+              "<b style='width:44px;text-align:right;padding-right:4px;color:" + colorTexto(r) + "'>" + fmtDec(r) + "×</b></div>";
+          });
+        }
+        h += "<div style='margin-top:5px;font-size:10px;color:#94a3b8'>Ministerio del Interior, Balance de Criminalidad. " +
+          "Mide denuncias por 1.000 hab.; en ciudades grandes pesan turismo y comercio.</div>";
+      } else {
+        h += "<br><span style='font-size:11px;color:#64748b'>Pulsa para ver la evolución y los demás tipos</span>";
+      }
+      return h;
+    }
+  });
+  function colorTexto(r) { return r >= 1.5 ? "#b91c1c" : r >= 1.15 ? "#c2410c" : r < 0.85 ? "#15803d" : "#a16207"; }
 
   // ------------------------------------------------ capa OSM
   // Primero la copia LOCAL (servicios/*.json, herramientas/generar_servicios.py;
@@ -434,6 +674,8 @@
     { id: "patricova", nombre: "Riesgo de inundación", sub: "PATRICOVA · peligrosidad", color: "#0ea5e9" },
     { id: "renta", nombre: "Renta por sección", sub: "INE 2023 · €/persona·año", color: "#2a788e" },
     { id: "turisticos", nombre: "Pisos turísticos", sub: "INE may-2026 · % viviendas", color: "#fd8d3c" },
+    { id: "criminalidad", nombre: "Peligrosidad · criminalidad", sub: "Interior · hurtos, robos… vs media España", color: "#d73027" },
+    { id: "extranjeros", nombre: "Población extranjera", sub: "INE · por continente de origen", color: "#8856a7" },
     { id: "osm", nombre: "Súper y estaciones", sub: "OpenStreetMap", color: "#1d4ed8" }
   ];
 
@@ -457,6 +699,11 @@
         capaRenta.mostrar(map, on);
       } else if (id === "turisticos") {
         capaTur.mostrar(map, on);
+      } else if (id === "criminalidad") {
+        capaCrim.mostrar(map, on);
+      } else if (id === "extranjeros") {
+        capaExt.mostrar(map, on && modoExt() === "pct");
+        capaExtOrigen.mostrar(map, on && modoExt() === "origen");
       } else if (id === "osm") {
         capaOSM.mostrar(map, on);
       }
@@ -555,6 +802,32 @@
         return "<div class='it'><span class='c' style='background:" + t[1] + "'></span>" + t[2] + "</div>";
       }).join("") + "<div class='nota'>Pasa el ratón o pulsa una sección para ver el dato.</div>";
     }
+    if (id === "criminalidad") {
+      return "<label>Tipo <select class='izc-crim'>" + TIPOS_CRIM.map(function (t) {
+          return "<option value='" + t[0] + "'" + (tipoCrim() === t[0] ? " selected" : "") + ">" + t[1] + "</option>";
+        }).join("") + "</select></label>" +
+        "<div class='nota' style='margin:2px 0 3px'>Tasa por 1.000 hab. frente a la media de España:</div>" +
+        TRAMOS_CRIM.map(function (t) {
+          return "<div class='it'><span class='c' style='background:" + t[1] + "'></span>" + t[2] + "</div>";
+        }).join("") +
+        "<div class='it'><span class='c' style='background:rgba(156,163,175,.15);border-color:#6b7280'></span>sin dato (&lt; 20.000 hab.)</div>" +
+        "<div class='nota'>Por municipio entero (no hay dato oficial por barrio). Pulsa uno para ver su evolución y el resto de tipos.</div>";
+    }
+    if (id === "extranjeros") {
+      var mo = modoExt();
+      return "<label>Ver <select class='izc-ext'>" +
+        "<option value='origen'" + (mo === "origen" ? " selected" : "") + ">Continente predominante</option>" +
+        "<option value='pct'" + (mo === "pct" ? " selected" : "") + ">% por sección</option></select></label>" +
+        "<div class='izc-ext-origen'" + (mo === "origen" ? "" : " style='display:none'") + ">" +
+        ORIGENES_EXT.slice(0, 4).map(function (o) {
+          return "<div class='it'><span class='c' style='background:" + o[2] + "'></span>" + o[1] + "</div>";
+        }).join("") + "<div class='nota'>Color = continente de origen más numeroso del municipio; más intenso = más % de extranjeros.</div></div>" +
+        "<div class='izc-ext-pct'" + (mo === "pct" ? "" : " style='display:none'") + ">" +
+        TRAMOS_EXT.map(function (t) {
+          return "<div class='it'><span class='c' style='background:" + t[1] + "'></span>" + t[2] + "</div>";
+        }).join("") + "<div class='nota'>% de extranjeros por sección censal (censo 2025). Zoom ≥ 11.</div></div>" +
+        "<div class='nota'>Pulsa en el mapa para ver el reparto por continente.</div>";
+    }
     if (id === "osm") {
       return "<div class='it'><span class='c' style='background:#16a34a;border-radius:50%;width:10px'></span>Supermercado</div>" +
         "<div class='it'><span class='c' style='background:#1d4ed8;border-radius:50%;width:10px'></span>Tren / metro / tranvía</div>";
@@ -600,6 +873,24 @@
     });
     var demo = caja.querySelector(".izc-demo");
     if (demo) demo.addEventListener("change", function () { window.__izZonas.setDemo(demo.checked); sincronizar(); });
+    var crim = caja.querySelector(".izc-crim");
+    if (crim) crim.addEventListener("change", function () {
+      try { localStorage.setItem(LS_CRIM, crim.value); } catch (e) {}
+      paneles.forEach(function (p) { var s2 = p.caja.querySelector(".izc-crim"); if (s2) s2.value = crim.value; });
+      try { capaCrim.info.close(); } catch (e) {}
+      capaCrim.restilar();
+    });
+    var ext = caja.querySelector(".izc-ext");
+    if (ext) ext.addEventListener("change", function () {
+      try { localStorage.setItem(LS_EXT, ext.value); } catch (e) {}
+      paneles.forEach(function (p) {
+        var s2 = p.caja.querySelector(".izc-ext"); if (s2) s2.value = ext.value;
+        p.caja.querySelector(".izc-ext-origen").style.display = ext.value === "origen" ? "" : "none";
+        p.caja.querySelector(".izc-ext-pct").style.display = ext.value === "pct" ? "" : "none";
+      });
+      estadoCapa("extranjeros", "");
+      window.__izMapas.forEach(function (m) { if (m.__izCapas) aplicarCapa(m, "extranjeros", capaOn("extranjeros")); });
+    });
     var orig = caja.querySelector(".izc-orig");
     if (orig) orig.addEventListener("change", function () { window.__izZonas.setOrigen(orig.value); sincronizar(); });
 
@@ -621,7 +912,7 @@
   function sincronizar() {
     // con capas de datos encima, las zonas propias pasan a casi solo contorno
     if (window.__izZonas && window.__izZonas.setRelleno) {
-      var encima = ["dana", "patricova", "renta", "turisticos"].some(capaOn);
+      var encima = ["dana", "patricova", "renta", "turisticos", "criminalidad", "extranjeros"].some(capaOn);
       window.__izZonas.setRelleno(encima ? 0.25 : 1);
     }
     var activas = 0;
@@ -675,6 +966,9 @@
         t = setTimeout(function () {
           capaRenta.refrescar(map);
           capaTur.refrescar(map);
+          capaCrim.refrescar(map);
+          capaExt.refrescar(map);
+          capaExtOrigen.refrescar(map);
           capaOSM.refrescar(map);
           sincronizar();
         }, 350);

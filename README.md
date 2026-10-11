@@ -312,6 +312,27 @@ censal y los pisos turísticos (INE, zoom ≥ 11; pasa el ratón o pulsa una
 sección para ver el dato) y súper/estaciones (OSM, zoom ≥ 14; usa la copia
 local de servicios si la hay). El panel se pliega pulsando su cabecera.
 
+Dos capas más para conocer la zona sin ser de allí:
+
+- **Peligrosidad · criminalidad** (zoom ≥ 9): colorea cada municipio según su
+  tasa por 1.000 habitantes frente a la media de España, de verde (mucho menos)
+  a rojo (mucho más). Puedes elegir el tipo: toda la criminalidad, hurtos,
+  robos con fuerza, robos en viviendas, robos con violencia, vehículos,
+  lesiones, delitos sexuales, drogas o cibercriminalidad. Al pulsar un
+  municipio salen la evolución 2016–2025 (municipio, provincia y España) y el
+  resto de tipos ordenados de peor a mejor. Interior solo publica municipios
+  de más de 20.000 habitantes, y no hay dato oficial por barrio.
+- **Población extranjera**, con dos modos:
+  - *Continente predominante* (zoom ≥ 9): el color es el continente de origen
+    más numeroso del municipio (Europa azul, África naranja, Latinoamérica
+    verde, Asia rosa) y la intensidad, el % de extranjeros.
+  - *% por sección* (zoom ≥ 11): el % de extranjeros barrio a barrio, del
+    censo 2025.
+
+  Al pulsar sale el reparto por continente, con barra y ranking (en Europa
+  también el % de la UE). Lo genera `herramientas/generar_extranjeros.py`
+  (padrón del INE) en `extranjeros/municipios.json`.
+
 ---
 
 ## 🧠 Cómo funciona por dentro
@@ -329,7 +350,7 @@ enciende/apaga sin recargar.
 | `zonas.js` | **Tus zonas** (generado; git-ignorado para que cada uno tenga el suyo) |
 | `zonas.js.ejemplo` | Plantilla mínima para empezar a mano |
 | `hook.js` | Captura los mapas de Google de idealista y pinta tus zonas |
-| `capas.js` | Panel **Capas** del mapa: DANA, PATRICOVA, renta, pisos turísticos, súper/estaciones |
+| `capas.js` | Panel **Capas** del mapa: DANA, PATRICOVA, renta, pisos turísticos, criminalidad, población extranjera, súper/estaciones |
 | `precio-final.js` | Precio real, columnas de la tabla de viviendas y panel de hipoteca |
 | `barrio.js` | Sección «¿Comprar aquí?» (nota, resumen, bloques), nota en listados, filtros, ⚙ Ajustes y comparador |
 | `seguridad.js` | Criminalidad oficial por municipio (`window.__izSeguridad`) |
@@ -340,6 +361,8 @@ enciende/apaga sin recargar.
 | `herramientas/generar_servicios.py` | Genera `servicios/<región>.json` desde OpenStreetMap (Geofabrik) |
 | `herramientas/generar_criminalidad.py` | Genera `criminalidad/municipios.json` (Ministerio del Interior + INE) |
 | `criminalidad/` | Criminalidad por municipio 2016–2025 (generada, incluida en el repo) |
+| `herramientas/generar_extranjeros.py` | Genera `extranjeros/municipios.json` (INE, padrón: extranjeros por continente y nacionalidad) |
+| `extranjeros/` | Población extranjera por municipio (generada, incluida en el repo) |
 | `herramientas/config.local.json` | TUS veredictos (git-ignorado) |
 | `servicios/` | Copia local de servicios por región (generada, git-ignorada) |
 | `data-src/` | Caché de descargas (GeoJSON, `.osm.pbf`; git-ignorado) |
@@ -375,7 +398,7 @@ Código: [MIT](LICENSE) — úsalo, modifícalo y compártelo libremente.
 
 Datos de terceros, consultados en directo o generados por los scripts: ©
 colaboradores de OpenStreetMap (ODbL), INE (Atlas de Distribución de Renta de
-los Hogares; viviendas turísticas; padrón), Ministerio del Interior (Balance de
+los Hogares; viviendas turísticas; censo anual de población; padrón), Ministerio del Interior (Balance de
 Criminalidad), Dirección General del Catastro, Institut Cartogràfic Valencià /
 Generalitat Valenciana (DANA 2024, PATRICOVA; CC BY 4.0), IGN – CartoCiudad
 (CC BY 4.0), OSRM (servidor de demostración) e informes de precios de
