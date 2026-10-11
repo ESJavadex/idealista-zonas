@@ -215,11 +215,18 @@
     "z-index:99999 !important;font:13px/1.45 system-ui,sans-serif !important;color:#0f172a !important;" +
     "width:640px !important;max-width:calc(100vw - 32px) !important;text-align:left !important;" +
     "overflow-x:auto !important;" + // sin tope de alto: TODO el desglose se ve
-    "box-sizing:border-box !important;clear:both !important;position:relative !important;}" +
+    "box-sizing:border-box !important;clear:both !important;position:relative !important;" +
+    "box-shadow:0 2px 10px rgba(0,0,0,.10) !important;border-radius:12px !important;}" +
+    // rejilla a 2 columnas: desglose | simulación (mucho menos alto)
+    ".izpf-panel .izpf-grid{display:grid !important;grid-template-columns:1fr 1fr !important;" +
+    "column-gap:18px !important;row-gap:0 !important;}" +
+    ".izpf-panel .izpf-col{min-width:0 !important;}" +
+    "@media (max-width:720px){.izpf-panel .izpf-grid{grid-template-columns:1fr !important;}}" +
     ".izpf-panel *{box-sizing:border-box !important;font-family:system-ui,sans-serif !important;}" +
     // textos y tablas del panel
-    ".izpf-panel h4{margin:0 0 6px !important;font-size:13px !important;color:#334155 !important;" +
-    "font-weight:700 !important;text-transform:none !important;letter-spacing:normal !important;padding:0 !important;}" +
+    ".izpf-panel h4{margin:0 0 8px !important;font-size:13px !important;color:#334155 !important;" +
+    "font-weight:700 !important;text-transform:none !important;letter-spacing:normal !important;" +
+    "padding:0 0 6px 0 !important;border-bottom:1px solid #e2e8f0 !important;}" +
     ".izpf-panel table{width:100% !important;border-collapse:collapse !important;margin:0 !important;" +
     "background:none !important;border:none !important;}" +
     ".izpf-panel td{padding:2px 0 !important;vertical-align:top !important;border:none !important;" +
@@ -326,7 +333,8 @@
     // ---- desglose del precio
     var html = "<h4>💶 Precio final (" + (obraNueva ? "obra nueva" : "segunda mano") +
       " · " + c.ccaa + ")" +
-      "<button class='izpf-x' title='cerrar'>✕</button></h4><table>";
+      "<button class='izpf-x' title='ocultar (vuelve con un click en precio final)'>✕</button></h4>" +
+      "<div class='izpf-grid'><div class='izpf-col'><table>";
     html += fila("Precio de venta", fmt(precio));
     if (obraNueva) {
       html += fila("IVA vivienda (" + pct(c.iva) + ")", fmt(precio * c.iva / 100));
@@ -350,6 +358,9 @@
       fmt(r.impuestos) + " + gastos " + fmt(r.gastos) + "</div>" +
       "<div class='sub'>En el día de firma solo hacen falta " + fmt(r.escritura) +
       " (la reserva y las arras se van pagando antes).</div></div>";
+
+    // cierra la col A (desglose + líquido) y abre la col B (cronograma + simulación)
+    html += "</div><div class='izpf-col'>";
 
     // ---- cronograma: cuándo pagas cada cosa
     html += "<div class='izpf-secc'><b>📅 Cuándo pagas cada cosa</b><table>";
@@ -390,10 +401,10 @@
         : "—") + "</td></tr>" +
       "<tr class='tot'><td>TODO pagado al final</td><td class='e'>" + fmt(r.totalConHipoteca) + "</td></tr>" +
       fila("Neto hogar necesario (cuota ≤ " + pct(c.regla) + ")", "<b>" + fmt(r.ingresoMinMes) + "/mes</b>") +
-      "</table>";
+      "</table></div></div>"; // cierra col B y la rejilla
 
-    // ---- escenarios rápidos (entrada x plazo)
-    html += "<b>⚡ Escenarios (interés actual " + pct(c.interes) + ")</b><div class='izpf-chips'>";
+    // ---- pie: escenarios rápidos (entrada x plazo)
+    html += "<div class='izpf-secc'><b>⚡ Escenarios (interés actual " + pct(c.interes) + ")</b><div class='izpf-chips'>";
     var combos = [[20, 25], [20, 30], [25, 25], [25, 30], [30, 25], [30, 30]];
     combos.forEach(function (cb) {
       var c2 = {};
@@ -561,18 +572,26 @@
       : "precio final <b>" + fmt(r.final) + "</b>";
     badge.title = "Precio real con impuestos y gastos (IVA/AJD/ITP + notaría, registro…) — click para mostrar/ocultar el desglose";
 
-    // SIEMPRE VISIBLE: el panel se monta de entrada, sin pulsar nada.
-    // El click en "precio final" (o en el ✕) solo lo oculta / vuelve a mostrar.
+    // SIEMPRE VISIBLE: panel montado de entrada en el precio principal.
+    // En las filas de unidades, solo la línea (el panel completo se crea al
+    // pulsar el precio/fila, sin explotar la tabla con 4 paneles a la vez)
     contenedor.appendChild(badge);
-    contenedor.appendChild(crearPanel(precio, obraNueva, cfg()));
+    badge.__izpfDatos = { precio: precio, obra: obraNueva };
+    if (esMain) contenedor.appendChild(crearPanel(precio, obraNueva, cfg()));
   }
 
-  // alterna el panel de un badge (ocultado con el ✕)
+  // alterna el panel de un badge: si no está montado (unidades), lo crea;
+  // si está oculto (✕), lo vuelve a mostrar
   function alternarPanel(badge) {
     var cont = badge.parentElement;
     if (!cont) return;
     var panel = cont.querySelector(":scope > .izpf-panel");
-    if (panel) panel.style.display = (panel.style.display === "none") ? "" : "none";
+    if (!panel) {
+      var d = badge.__izpfDatos || { precio: 0, obra: esObraNueva() };
+      cont.appendChild(crearPanel(d.precio, d.obra, cfg()));
+      return;
+    }
+    panel.style.display = (panel.style.display === "none") ? "" : "none";
   }
 
   // UN solo listener global en CAPTURA, registrado al cargar (document_start):
