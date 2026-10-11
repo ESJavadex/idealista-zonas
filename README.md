@@ -265,7 +265,7 @@ saturan a menudo. Genera una copia local de tu región (≈1 MB, 1 minuto):
 ```bash
 pip install osmium
 python3 herramientas/generar_servicios.py            # Comunitat Valenciana
-python3 herramientas/generar_servicios.py galicia castilla-y-leon
+python3 herramientas/generar_servicios.py castilla-y-leon galicia   # Valladolid, Vigo…
 ```
 
 Fuera de las regiones descargadas se usa Overpass en directo.
@@ -275,4 +275,4 @@ Fuera de las regiones descargadas se usa Overpass en directo.
 En la vista mapa, el panel **Capas** (abajo a la izquierda) activa: tus zonas,
 la zona inundada por la DANA 2024, el riesgo PATRICOVA, la renta por sección
 censal y los pisos turísticos (INE, zoom ≥ 11) y súper/estaciones (OSM,
-zoom ≥ 15). Ver `capas.js`.
+zoom ≥ 14; usa la copia local de servicios si la hay). Ver `capas.js`.

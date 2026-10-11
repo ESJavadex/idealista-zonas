@@ -7,7 +7,7 @@
 //   · Riesgo de inundación PATRICOVA    (ArcGIS REST, GVA)
 //   · Renta por sección censal          (INE, ADRH 2023) — zoom ≥ 11
 //   · Pisos turísticos por sección      (INE, mayo 2026) — zoom ≥ 11
-//   · Supermercados y estaciones        (OpenStreetMap / Overpass) — zoom ≥ 15
+//   · Supermercados y estaciones        (OpenStreetMap: copia local o Overpass) — zoom ≥ 14
 //
 // Se ejecuta en el mundo MAIN, después de hook.js (usa window.__izMapas, que
 // rellena hook.js con cada google.maps.Map que crea idealista). Sin permisos:
@@ -312,8 +312,44 @@
     }
   });
 
-  // ------------------------------------------------ capa OSM (Overpass)
+  // ------------------------------------------------ capa OSM
+  // Primero la copia LOCAL (servicios/*.json, herramientas/generar_servicios.py;
+  // puente.js deja la URL de la extensión en <html data-izext>): instantánea y
+  // sin depender de Overpass, que se satura. Fuera de esas regiones, Overpass.
   var CELDA_OSM = 0.01;
+  var osmIndice = null, osmRegiones = {};
+  function osmLocal(s, w, n, e) {
+    var base = document.documentElement.getAttribute("data-izext");
+    if (!base) return Promise.resolve(null);
+    osmIndice = osmIndice || fetch(base + "servicios/indice.json").then(function (r) { return r.json(); })
+      .catch(function () { return []; });
+    var la = (s + n) / 2, lo = (w + e) / 2;
+    return osmIndice.then(function (idx) {
+      var reg = (idx || []).filter(function (x) {
+        return la >= x.bbox[0] && la <= x.bbox[2] && lo >= x.bbox[1] && lo <= x.bbox[3];
+      })[0];
+      if (!reg) return null;
+      osmRegiones[reg.region] = osmRegiones[reg.region] ||
+        fetch(base + "servicios/" + reg.region + ".json").then(function (r) { return r.json(); });
+      return osmRegiones[reg.region].then(function (d) {
+        var out = [];
+        function meter(lista, tags, pref) {
+          (lista || []).forEach(function (f, i) {
+            if (f[0] < s || f[0] > n || f[1] < w || f[1] > e) return;
+            var t = {}; for (var k in tags) t[k] = tags[k];
+            if (f[2]) t.name = f[2];
+            out.push({ type: pref, id: f[0] + "," + f[1], lat: f[0], lon: f[1], tags: t });
+          });
+        }
+        meter(d.cats.super, { shop: "supermarket" }, "s");
+        meter(d.cats.tren, { railway: "station" }, "t");
+        return { elements: out };
+      });
+    });
+  }
+  function osmDatos(q, s, w, n, e) {
+    return osmLocal(s, w, n, e).then(function (d) { return d || overpass(q); });
+  }
   var capaOSM = {
     marcadores: new Map(), celdas: new Map(), vistos: new Set(), cargando: 0,
     mostrar: function (map, on) {
@@ -322,7 +358,7 @@
     },
     refrescar: function (map) {
       if (!capaOn("osm")) return;
-      if ((map.getZoom() || 0) < 15) { estadoCapa("osm", "acerca el mapa (zoom ≥ 15)"); return; }
+      if ((map.getZoom() || 0) < 14) { estadoCapa("osm", "acerca el mapa (zoom ≥ 14)"); return; }
       var b = map.getBounds(); if (!b) return;
       var sw = b.getSouthWest(), ne = b.getNorthEast();
       var hechas = this.celdas.get(map) || new Set(); this.celdas.set(map, hechas);
@@ -333,8 +369,8 @@
       for (var x = x0; x <= x1; x++) for (var y = y0; y <= y1; y++) {
         if (!hechas.has(x + "," + y)) nuevas.push([x, y]);
       }
-      if (!nuevas.length || nuevas.length > 48) {
-        estadoCapa("osm", nuevas.length > 48 ? "acerca el mapa" : ""); return;
+      if (!nuevas.length || nuevas.length > 160) {
+        estadoCapa("osm", nuevas.length > 160 ? "acerca el mapa" : ""); return;
       }
       // una sola consulta con la caja que cubre todas las celdas nuevas
       var s = Math.min.apply(null, nuevas.map(function (c) { return c[1]; })) * CELDA_OSM;
@@ -352,7 +388,7 @@
       this.cargando++;
       estadoCapa("osm", "cargando…", true);
       var fallo = false;
-      overpass(q)
+      osmDatos(q, s, w, n, e)
         .then(function (d) {
           (d.elements || []).forEach(function (el) {
             var k = el.type + el.id;

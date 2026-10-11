@@ -577,15 +577,31 @@
 
   // ---- 6) en coche (OSRM, sin tráfico) -------------------------------
   var LS_DEST = "izb_destinos";
+  // por zona: solo se usan los que quedan a < 250 km de la vivienda, y el
+  // "principal" (el que cuenta para la nota) es el centro de esa ciudad
   var DEST_DEF = [
     { n: "València centro (Ayuntamiento)", lat: 39.4697, lng: -0.3774, principal: true },
     { n: "Aeropuerto de València", lat: 39.4893, lng: -0.4816 },
-    { n: "Estación AVE Joaquín Sorolla", lat: 39.4594, lng: -0.3829 }
+    { n: "Estación AVE Joaquín Sorolla", lat: 39.4594, lng: -0.3829 },
+    { n: "Valladolid centro (Plaza Mayor)", lat: 41.6523, lng: -4.7286, principal: true },
+    { n: "Estación Valladolid Campo Grande", lat: 41.6409, lng: -4.7312 },
+    { n: "Aeropuerto de Valladolid", lat: 41.7061, lng: -4.8519 },
+    { n: "Vigo centro (Porta do Sol)", lat: 42.2378, lng: -8.7214, principal: true },
+    { n: "Estación Vigo-Urzáiz (AVE)", lat: 42.2333, lng: -8.7128 },
+    { n: "Aeropuerto de Vigo (Peinador)", lat: 42.2318, lng: -8.6268 }
   ];
   function destinos() { return lsGet(LS_DEST, null) || DEST_DEF.slice(); }
   function coche(lat, lng, extra) {
     var ds = destinos().concat(extra || []);
     var cerca = ds.filter(function (d) { return dist(lat, lng, d.lat, d.lng) < 250000; });
+    // con varias ciudades "principales" en la lista, manda la más cercana
+    var princ = cerca.filter(function (d) { return d.principal && !d.auto; })
+      .sort(function (a, b) { return dist(lat, lng, a.lat, a.lng) - dist(lat, lng, b.lat, b.lng); })[0];
+    cerca = cerca.map(function (d) {
+      var c = {}; for (var k in d) c[k] = d[k];
+      c.principal = princ ? d === princ : false;
+      return c;
+    });
     if (!cerca.length) return Promise.resolve({ rutas: [] });
     var k = "osrm:" + lat.toFixed(4) + "," + lng.toFixed(4) + ":" +
       cerca.map(function (d) { return d.lat.toFixed(4) + "," + d.lng.toFixed(4); }).join(";");
@@ -1151,9 +1167,11 @@
       if (S.err.coche) h += "<p class='izb-err'>" + esc(S.err.coche) + "</p>";
       h += "<div class='izb-rows'>";
       destinos().forEach(function (d, i) {
+        if (dist(S.coords.lat, S.coords.lng, d.lat, d.lng) >= 250000) return; // de otra zona
         var r = C && C.rutas.filter(function (x) { return x.n === d.n && !x.auto; })[0];
-        h += "<div class='izb-row'><span class='i'>" + (d.principal ? "★" : "🚗") + "</span><span class='d'><b>" + esc(d.n) + "</b>" +
-          "<span>" + (d.principal ? "destino principal (cuenta para la nota)" : "<a href='#' class='izb-principal' data-i='" + i + "'>marcar como principal</a>") +
+        var esPrinc = r ? r.principal : d.principal;
+        h += "<div class='izb-row'><span class='i'>" + (esPrinc ? "★" : "🚗") + "</span><span class='d'><b>" + esc(d.n) + "</b>" +
+          "<span>" + (esPrinc ? "destino principal (cuenta para la nota)" : "<a href='#' class='izb-principal' data-i='" + i + "'>marcar como principal</a>") +
           "</span></span><span class='r'>" + (r && r.min != null ? r.min + " min<small>" + fmtN(r.km, 1) + " km</small>" :
             C ? "<small>muy lejos</small>" : "…") +
           " <button class='izb-x izb-borrar' data-i='" + i + "' title='quitar destino'>✕</button></span></div>";
@@ -1288,7 +1306,11 @@
     if (t.closest(".izb-principal")) {
       ev.preventDefault();
       var i = +t.closest(".izb-principal").getAttribute("data-i");
-      var ds2 = destinos().map(function (d, j) { d.principal = j === i; return d; });
+      // solo cambia el principal de ESTA zona (los de otras ciudades se quedan)
+      var ds2 = destinos().map(function (d, j) {
+        if (dist(S.coords.lat, S.coords.lng, d.lat, d.lng) < 250000) d.principal = j === i;
+        return d;
+      });
       lsSet(LS_DEST, ds2); recargarCoche(); return;
     }
     if (t.closest(".izb-reosm")) {
