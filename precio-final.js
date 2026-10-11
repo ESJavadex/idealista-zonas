@@ -68,6 +68,7 @@
     ibi: 500,       // €/año aproximados (para el coste mensual real)
     comunidad: 40,  // €/mes aproximados de comunidad
     regla: 35,      // % máx. de la cuota sobre el neto mensual del hogar
+    neto: 2500,     // €/mes netos del hogar (para el % de endeudamiento)
     entrada: 20,    // % de entrada en la simulación
     plazo: 30,      // años
     interes: 3.0    // % TIN anual
@@ -159,6 +160,8 @@
       escritura: restoEntrada + imp + gastos,          // pasta solo en el día de firma
       totalConHipoteca: entrada + imp + gastos + cuota * meses,
       costeMensualReal: costeMensualReal,
+      // % de endeudamiento: coste real mensual sobre el neto del hogar
+      endeudamiento: c.neto > 0 ? costeMensualReal / c.neto * 100 : null,
       ingresoMinMes: costeMensualReal / (c.regla / 100),
       ingresoMinAno: costeMensualReal / (c.regla / 100) * 12
     };
@@ -321,6 +324,13 @@
       fila("Cuota mensual", "<b>" + fmt(r.cuota) + "</b>") +
       fila("Intereses totales (" + r.meses + " cuotas)", fmt(r.intereses)) +
       fila("Coste mensual real (+comunidad " + fmt(c.comunidad) + " + IBI " + fmt(c.ibi) + ")", "<b>" + fmt(r.costeMensualReal) + "</b>") +
+      "<tr><td class='d'>Neto del hogar:</td><td class='e'><input class='izpf-in' data-k='neto' type='number' step='100' value='" + c.neto + "' style='width:70px !important;'> €/mes</td></tr>" +
+      "<tr><td class='d'>% de endeudamiento:</td><td class='e izpf-endeud'>" +
+      (r.endeudamiento != null
+        ? "<b style='color:" + (r.endeudamiento <= 30 ? "#16a34a" : r.endeudamiento <= 35 ? "#b45309" : "#dc2626") +
+          " !important'>" + r.endeudamiento.toFixed(1).replace(".", ",") + " %</b> " +
+          (r.endeudamiento <= 30 ? "✔ bien" : r.endeudamiento <= 35 ? "⚠ justo" : "✖ demasiado")
+        : "—") + "</td></tr>" +
       "<tr class='tot'><td>TODO pagado al final</td><td class='e'>" + fmt(r.totalConHipoteca) + "</td></tr>" +
       fila("Neto hogar necesario (cuota ≤ " + pct(c.regla) + ")", "<b>" + fmt(r.ingresoMinMes) + "/mes</b>") +
       "</table>";
