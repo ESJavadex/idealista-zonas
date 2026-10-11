@@ -23,7 +23,7 @@
   if (window.top !== window) return; // solo el documento principal
   if (!/idealista\./.test(location.hostname) && !window.__IZ_TEST) return; // __IZ_TEST: página de pruebas local
 
-  var VERSION = "1.0.0";
+  var VERSION = "2.0.0";
   var RE_DETALLE = /\/(obra-nueva|inmueble)\/(\d+)/;
 
   // ----------------------------------------------------------------- utils
@@ -1424,7 +1424,8 @@
       FILAS_CMP.forEach(function (f) {
         var vals = l.map(function (it) { return it[f[1]]; });
         var nums = vals.filter(function (v) { return typeof v === "number"; });
-        var best = f[3] && nums.length > 1 ? (f[3] === "max" ? Math.max.apply(null, nums) : Math.min.apply(null, nums)) : null;
+        var distintos = nums.some(function (v) { return v !== nums[0]; });
+        var best = f[3] && nums.length > 1 && distintos ? (f[3] === "max" ? Math.max.apply(null, nums) : Math.min.apply(null, nums)) : null;
         h += "<tr><th>" + esc(f[0]) + "</th>" + l.map(function (it) {
           var v = it[f[1]];
           return "<td" + (best != null && v === best ? " class='best'" : "") + ">" + (f[2] ? f[2](v, it) : esc(v || "—")) + "</td>";

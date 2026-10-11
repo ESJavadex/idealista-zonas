@@ -479,7 +479,10 @@
     // ---- anti-navegación: cortamos el evento en CAPTURA para que no llegue
     // ni a la <a> de la fila ni a delegados de idealista; los handlers internos
     // (inputs, chips, botones) están por debajo y siguen ejecutándose
-    panel.addEventListener("click", function (ev) { ev.stopPropagation(); }, true);
+    // OJO: en fase de BURBUJA. En captura, stopPropagation en el panel impedía
+    // que el clic llegase a sus propios botones (escenarios, ✕, comparar…);
+    // la navegación de la fila ya la anula el preventDefault del listener global
+    panel.addEventListener("click", function (ev) { ev.stopPropagation(); });
 
     // ---- comportamiento
     panel.querySelector(".izpf-x").addEventListener("click", function () {
