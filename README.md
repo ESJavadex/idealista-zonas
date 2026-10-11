@@ -332,6 +332,12 @@ Dos capas más para conocer la zona sin ser de allí:
   - *% extranjeros por sección* (zoom ≥ 11): el % de extranjeros barrio a
     barrio, del censo 2025.
 
+  En la **ciudad de València**, a partir de zoom 12 se ve **por barrio** (los
+  88 barrios, padrón municipal a 1 de enero de 2026, del Ayuntamiento): el INE
+  no publica continentes por debajo del municipio, pero el Ayuntamiento sí.
+  Lo genera `herramientas/generar_extranjeros_barrios.py` (necesita
+  `pdftotext`) en `extranjeros/barrios-valencia.json`.
+
   Al pulsar sale el reparto por continente, con barra y ranking (en Europa
   también el % de la UE). Lo genera `herramientas/generar_extranjeros.py`
   (padrón del INE) en `extranjeros/municipios.json`.
@@ -365,7 +371,8 @@ enciende/apaga sin recargar.
 | `herramientas/generar_criminalidad.py` | Genera `criminalidad/municipios.json` (Ministerio del Interior + INE) |
 | `criminalidad/` | Criminalidad por municipio 2016–2025 (generada, incluida en el repo) |
 | `herramientas/generar_extranjeros.py` | Genera `extranjeros/municipios.json` (INE, padrón: extranjeros por continente y nacionalidad) |
-| `extranjeros/` | Población extranjera por municipio (generada, incluida en el repo) |
+| `herramientas/generar_extranjeros_barrios.py` | Genera `extranjeros/barrios-valencia.json` (padrón del Ayuntamiento de València + geoportal) |
+| `extranjeros/` | Población extranjera por municipio y por barrio de València (generada, incluida en el repo) |
 | `herramientas/config.local.json` | TUS veredictos (git-ignorado) |
 | `servicios/` | Copia local de servicios por región (generada, git-ignorada) |
 | `data-src/` | Caché de descargas (GeoJSON, `.osm.pbf`; git-ignorado) |
@@ -402,7 +409,8 @@ Código: [MIT](LICENSE) — úsalo, modifícalo y compártelo libremente.
 Datos de terceros, consultados en directo o generados por los scripts: ©
 colaboradores de OpenStreetMap (ODbL), INE (Atlas de Distribución de Renta de
 los Hogares; viviendas turísticas; censo anual de población; padrón), Ministerio del Interior (Balance de
-Criminalidad), Dirección General del Catastro, Institut Cartogràfic Valencià /
+Criminalidad), Ajuntament de València (Oficina d'Estadística, padrón municipal; geoportal,
+CC BY), Dirección General del Catastro, Institut Cartogràfic Valencià /
 Generalitat Valenciana (DANA 2024, PATRICOVA; CC BY 4.0), IGN – CartoCiudad
 (CC BY 4.0), OSRM (servidor de demostración) e informes de precios de
 idealista. Este proyecto no está afiliado a ninguno de ellos.
