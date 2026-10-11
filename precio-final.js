@@ -13,7 +13,7 @@
 (function () {
   "use strict";
 
-  var VERSION = "1.8.2"; // se canta en consola: así sabemos qué build corre de verdad
+  var VERSION = "1.10.0"; // se canta en consola: así sabemos qué build corre de verdad
 
   // ------------------------------------------------------------- ajustes
   var LS_CFG = "iz_pf_cfg";   // valores guardados
@@ -282,7 +282,24 @@
     "cursor:pointer !important;color:#94a3b8 !important;font:14px system-ui,sans-serif !important;" +
     "padding:0 !important;margin:0 !important;width:auto !important;height:auto !important;" +
     "text-transform:none !important;}" +
-    ".izpf-panel .izpf-x:hover{color:#334155 !important;}";
+    ".izpf-panel .izpf-x:hover{color:#334155 !important;}" +
+    // tabla de unidades: columnas extra a la derecha con scroll horizontal
+    ".izpf-scroll{overflow-x:auto !important;}" +
+    ".izpf-scroll>.table{width:auto !important;min-width:100% !important;}" +
+    // sin partir líneas: la tabla crece hacia la derecha y se hace scroll
+    ".izpf-scroll>.table>.table__row>.table__cell{white-space:nowrap !important;}" +
+    ".izpf-scroll .izpf-badge{white-space:nowrap !important;}" +
+    ".izpf-cell{white-space:nowrap !important;cursor:pointer !important;color:#141414 !important;}" +
+    ".izpf-cell .v{font-weight:600 !important;color:#b45309 !important;}" +
+    ".izpf-cell .l{display:block !important;font:400 12.5px/1.45 system-ui,sans-serif !important;color:#64748b !important;}" +
+    ".izpf-cell:hover .l{color:#334155 !important;}" +
+    ".table__row.izpf-head>.table__cell{font:600 12px/1.3 system-ui,sans-serif !important;color:#64748b !important;" +
+    "white-space:nowrap !important;padding-top:10px !important;padding-bottom:6px !important;" +
+    "border-bottom:1px solid #e2e8f0 !important;vertical-align:bottom !important;background:#fff !important;}" +
+    ".table__row.izpf-sel{background:#fefce8 !important;}" +
+    // panel de detalle bajo la tabla: a todo el ancho, no dentro de una celda
+    ".izpf-panel.izpf-full{width:auto !important;max-width:none !important;margin:8px 16px 12px !important;" +
+    "box-shadow:none !important;}";
 
   var raicesEstiladas = new Set();
   function ponerCSS() {
@@ -323,7 +340,7 @@
   }
 
   // -------------------------------------------------------------- panel
-  function crearPanel(precio, obraNueva, c) {
+  function crearPanel(precio, obraNueva, c, titulo) {
     var panel = document.createElement("div");
     panel.className = "izpf-panel";
     var r = calcular(precio, c, obraNueva);
@@ -331,7 +348,7 @@
     function fila(d, e) { return "<tr><td class='d'>" + d + "</td><td class='e'>" + e + "</td></tr>"; }
 
     // ---- desglose del precio
-    var html = "<h4>💶 Precio final (" + (obraNueva ? "obra nueva" : "segunda mano") +
+    var html = "<h4>💶 " + (titulo ? titulo + " — " : "") + "Precio final (" + (obraNueva ? "obra nueva" : "segunda mano") +
       " · " + c.ccaa + ")" +
       "<button class='izpf-x' title='ocultar (vuelve con un click en precio final)'>✕</button></h4>" +
       "<div class='izpf-grid'><div class='izpf-col'><table>";
@@ -464,14 +481,18 @@
     // ---- comportamiento
     panel.querySelector(".izpf-x").addEventListener("click", function () {
       panel.style.display = "none"; // solo oculta: "precio final" lo re-muestra
+      if (panel.__izpfFila) panel.__izpfFila.classList.remove("izpf-sel");
     });
 
     function refrescar() {
       // recalcular en sitio re-creando el panel (sencillo y sin fugas)
       var oculto = panel.style.display === "none";
-      var nuevo = crearPanel(precio, obraNueva, cfg());
+      var nuevo = crearPanel(precio, obraNueva, cfg(), titulo);
+      nuevo.className = panel.className;
+      nuevo.__izpfFila = panel.__izpfFila;
       if (oculto) nuevo.style.display = "none";
       panel.replaceWith(nuevo);
+      repintar(); // la tabla y las líneas de precio final siguen a la config
     }
 
     panel.querySelectorAll(".izpf-in").forEach(function (inp) {
@@ -539,7 +560,7 @@
     if (el.__izpf) return;
     // nunca inyectar dentro de nuestros propios paneles/badges
     if (el.closest && el.closest(".izpf-panel")) return;
-    if (el.closest && el.closest(".izpf-badge")) return;
+    if (el.closest && el.closest(".izpf-badge, .izpf-cell")) return;
     // solo donde se ve de verdad (idealista tiene copias ocultas del precio)
     if (!visible(el)) return;
     el.__izpf = true;
@@ -558,26 +579,127 @@
     var contenedor = (disp === "inline" || disp === "inline-block" || disp === "inline-flex") ? padre : el;
 
     var obraNueva = esObraNueva();
-    var c = cfg();
-    var r = calcular(precio, c, obraNueva);
-
     var badge = document.createElement("div");
     badge.className = "izpf-badge";
-    // SIEMPRE visible sin click: en el precio principal, con líquido y cuota;
-    // en las filas de unidades, la línea corta. Sin emojis ni estilo de botón
-    var esMain = el.closest("#priceContainer, .info-data.price");
-    badge.innerHTML = esMain
+    badge.__izpfDatos = { precio: precio, obra: obraNueva };
+    badge.__izpfMain = !el.closest(".table__row");
+    badge.title = "Precio real con impuestos y gastos (IVA/AJD/ITP + notaría, registro…) — click para ver el desglose";
+    pintarBadge(badge);
+    contenedor.appendChild(badge);
+
+    // fila de la tabla de unidades: columnas extra (cash, cuota, esfuerzo)
+    var fila = el.closest(".table__row");
+    if (fila) ponerCeldas(fila, precio, obraNueva);
+  }
+
+  // texto de la línea "precio final": en el precio principal, con líquido y
+  // cuota; en las filas de la tabla, solo el precio (el resto va en columnas)
+  function pintarBadge(badge) {
+    var d = badge.__izpfDatos;
+    var r = calcular(d.precio, cfg(), d.obra);
+    badge.innerHTML = badge.__izpfMain
       ? "precio final <b>" + fmt(r.final) + "</b> · líquido " + fmt(r.liquido) +
         " · cuota " + fmt(r.cuota) + "/mes"
       : "precio final <b>" + fmt(r.final) + "</b>";
-    badge.title = "Precio real con impuestos y gastos (IVA/AJD/ITP + notaría, registro…) — click para mostrar/ocultar el desglose";
+  }
 
-    // SIEMPRE VISIBLE: panel montado de entrada en el precio principal.
-    // En las filas de unidades, solo la línea (el panel completo se crea al
-    // pulsar el precio/fila, sin explotar la tabla con 4 paneles a la vez)
-    contenedor.appendChild(badge);
-    badge.__izpfDatos = { precio: precio, obra: obraNueva };
-    if (esMain) contenedor.appendChild(crearPanel(precio, obraNueva, cfg()));
+  function ponerCeldas(fila, precio, obraNueva) {
+    if (fila.__izpfCeldas) return;
+    fila.__izpfCeldas = { precio: precio, obra: obraNueva };
+    ["liquido", "entrada", "reserva", "cuota", "esfuerzo"].forEach(function (k) {
+      var td = document.createElement("span");
+      td.className = "table__cell izpf-cell";
+      td.setAttribute("data-k", k);
+      td.title = "Click para ver el desglose completo";
+      fila.appendChild(td);
+    });
+    pintarCeldas(fila);
+    var tabla = fila.parentElement;
+    if (tabla && tabla.parentElement) tabla.parentElement.classList.add("izpf-scroll");
+  }
+
+  function pintarCeldas(fila) {
+    var d = fila.__izpfCeldas, c = cfg();
+    var r = calcular(d.precio, c, d.obra);
+    var e = r.endeudamiento;
+    var col = e == null ? "#64748b" : e <= 30 ? "#16a34a" : e <= 35 ? "#b45309" : "#dc2626";
+    fila.querySelectorAll(":scope > .izpf-cell").forEach(function (td) {
+      var k = td.getAttribute("data-k");
+      if (k === "liquido") td.innerHTML = "<span class='v'>" + fmt(r.liquido) + "</span><span class='l'>final " + fmt(r.final) + "</span>";
+      if (k === "entrada") td.innerHTML = "<span class='v'>" + fmt(r.entrada) + "</span><span class='l'>" + pct(c.entrada) + " del precio</span>";
+      if (k === "reserva") td.innerHTML = "<span class='v'>" + fmt(r.reserva + r.arras) + "</span><span class='l'>" +
+        (r.reserva > 0 ? fmt(r.reserva) + " + " + fmt(r.arras) : "arras " + pct(c.arras)) + "</span>";
+      if (k === "cuota") td.innerHTML = "<span class='v'>" + fmt(r.cuota) + "/mes</span><span class='l'>" +
+        c.plazo + " años · " + pct(c.interes) + "</span>";
+      if (k === "esfuerzo") td.innerHTML = e == null ? "—" :
+        "<span class='v' style='color:" + col + " !important'>" + e.toFixed(1).replace(".", ",") +
+        " %</span><span class='l'>sobre " + fmt(c.neto) + "/mes</span>";
+    });
+  }
+
+  // las filas no tienen todas las mismas celdas (p. ej. "Plaza de garaje"):
+  // rellenamos con celdas vacías para que nuestras columnas queden alineadas
+  function alinearTablas() {
+    document.querySelectorAll(".izpf-scroll > .table").forEach(function (tabla) {
+      var filas = tabla.querySelectorAll(":scope > .table__row");
+      var max = 0;
+      filas.forEach(function (f) {
+        var n = f.querySelectorAll(":scope > .table__cell:not(.izpf-cell)").length;
+        if (n > max) max = n;
+      });
+      filas.forEach(function (f) {
+        var primera = f.querySelector(":scope > .izpf-cell");
+        if (!primera) return;
+        var n = f.querySelectorAll(":scope > .table__cell:not(.izpf-cell)").length;
+        for (; n < max; n++) {
+          var pad = document.createElement("span");
+          pad.className = "table__cell izpf-pad";
+          f.insertBefore(pad, primera);
+        }
+      });
+      // cabecera: una sola, arriba, con los nombres de nuestras columnas
+      if (!tabla.querySelector(":scope > .izpf-head")) {
+        var cab = document.createElement("div");
+        cab.className = "table__row izpf-head";
+        var h = "<span class='table__cell'>Vivienda</span>";
+        for (var i = 1; i < max; i++) h += "<span class='table__cell'></span>";
+        ["Cash necesario", "Entrada", "Reserva + arras", "Cuota", "Esfuerzo"].forEach(function (t) {
+          h += "<span class='table__cell'>" + t + "</span>";
+        });
+        cab.innerHTML = h;
+        tabla.insertBefore(cab, tabla.firstChild);
+      }
+    });
+  }
+
+  // recalcula todo lo pintado (tras cambiar entrada, plazo, interés, neto…)
+  function repintar() {
+    raicesDOM().forEach(function (raiz) {
+      raiz.querySelectorAll(".izpf-badge").forEach(pintarBadge);
+      raiz.querySelectorAll(".table__row").forEach(function (f) {
+        if (f.__izpfCeldas) pintarCeldas(f);
+      });
+    });
+  }
+
+  // detalle de una fila: UN panel bajo la tabla, a todo el ancho; pulsar la
+  // misma fila lo cierra, pulsar otra lo cambia
+  function alternarDetalleFila(fila) {
+    var tabla = fila.parentElement, caja = tabla && tabla.parentElement;
+    if (!caja) return;
+    var prev = caja.parentElement.querySelector(":scope > .izpf-panel.izpf-full");
+    var eraEsta = prev && prev.__izpfFila === fila && prev.style.display !== "none";
+    if (prev) prev.remove();
+    tabla.querySelectorAll(".izpf-sel").forEach(function (f) { f.classList.remove("izpf-sel"); });
+    if (eraEsta) return;
+    var d = fila.__izpfCeldas;
+    var nombre = ((fila.querySelector(".table__go-to-property") || {}).textContent || "")
+      .replace(/\s+/g, " ").trim();
+    var panel = crearPanel(d.precio, d.obra, cfg(), nombre);
+    panel.classList.add("izpf-full");
+    panel.__izpfFila = fila;
+    caja.insertAdjacentElement("afterend", panel);
+    fila.classList.add("izpf-sel");
   }
 
   // alterna el panel de un badge: si no está montado (unidades), lo crea;
@@ -595,47 +717,30 @@
   }
 
   // UN solo listener global en CAPTURA, registrado al cargar (document_start):
-  // corre ANTES que cualquier handler de idealista. Decide todo:
-  //  · click en "precio final" → que la fila (<a>) NO navegue y alternar panel
-  //  · click en el panel → anula el <a> en los clics inertes; checkboxes,
-  //    selects y botones conservan su comportamiento nativo
-  // ¿el click cayó dentro del bloque que alberga un precio final? (celda de la
-  // tabla de unidades o precio principal) — para que pulsar el precio de la fila
-  // abra/oculte el panel en lugar de navegar al anuncio
-  function bloqueDelPrecio(t) {
-    var a = t;
-    while (a && a !== document.body) {
-      if (a.querySelector && a.querySelector(":scope > .izpf-badge")) return a;
-      a = a.parentElement;
-    }
-    return null;
-  }
-
+  // corre ANTES que cualquier handler de idealista.
+  //  · "precio final" o nuestras columnas en una fila → no navegar y abrir el
+  //    detalle bajo la tabla (el resto de la fila sigue llevando al anuncio)
+  //  · "precio final" del precio principal → mostrar/ocultar su panel
+  //  · clics inertes dentro del panel → anulan el <a>; inputs, selects y
+  //    botones conservan su comportamiento nativo
   document.addEventListener("click", function (ev) {
     var t = ev.target;
     if (!t || !t.closest) return;
-    var badge = t.closest(".izpf-badge");
-    if (badge) {
-      ev.preventDefault();
-      ev.stopPropagation();
-      alternarPanel(badge);
-      return;
-    }
     var panel = t.closest(".izpf-panel");
     if (panel) {
       var tg = t.tagName;
       if (tg !== "INPUT" && tg !== "SELECT" && tg !== "OPTION" && tg !== "LABEL" && tg !== "BUTTON") {
-        ev.preventDefault(); // clics inertes: anula el <a> de la fila
+        ev.preventDefault();
       }
       return;
     }
-    // el propio bloque del precio (celda / precio principal): no navegar
-    var bloque = bloqueDelPrecio(t);
-    if (bloque) {
-      ev.preventDefault();
-      ev.stopPropagation();
-      alternarPanel(bloque.querySelector(":scope > .izpf-badge"));
-    }
+    var nuestro = t.closest(".izpf-badge, .izpf-cell");
+    if (!nuestro) return;
+    ev.preventDefault();
+    ev.stopPropagation();
+    var fila = nuestro.closest(".table__row");
+    if (fila && fila.__izpfCeldas) alternarDetalleFila(fila);
+    else if (nuestro.classList.contains("izpf-badge")) alternarPanel(nuestro);
   }, true);
 
   // ------------------------------------------------------------- barrido
@@ -678,7 +783,9 @@
       if (!m) continue;
       var host = node.parentElement;
       if (!host || !visible(host)) continue;
-      if (host.closest(".izpf-panel") || host.closest(".izpf-badge")) continue;
+      if (host.closest(".izpf-panel, .izpf-badge, .izpf-cell")) continue;
+      // barra fija superior: ahí no cabe nada (y un panel ahí tapa la página)
+      if (host.closest("#fixed-toolbar")) continue;
 
       // subir como mucho 4 niveles hasta que el bloque sea ~el precio solo
       var objetivo = host, subidas = 0;
@@ -720,6 +827,7 @@
       raicesDOM().forEach(function (raiz) {
         nuevos += escanearRaiz(raiz);
       });
+      if (nuevos) alinearTablas();
 
       var total = document.querySelectorAll(".izpf-badge").length;
       if (total > 0) log(total + " precio(s) final(es) visibles (nuevos: " + nuevos + ")");
