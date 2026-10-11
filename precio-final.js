@@ -92,11 +92,30 @@
     return v !== "0"; // por defecto ENCENDIDO
   }
 
+  // ¿estamos en una ficha? También detecta iframes del propio idealista que
+  // incrustan la tabla "pisos disponibles en venta" (con all_frames:true el
+  // script corre dentro de ellos), y documentos de idealista sin la URL típica
   function esDetalle() {
-    return /idealista\.[a-z.]+\/(obra-nueva|inmueble)\//.test(location.href);
+    if (!/idealista\./.test(location.href)) return false; // solo idealista
+    if (/idealista\.[a-z.]+\/(obra-nueva|inmueble)\//.test(location.href)) return true;
+    try {
+      var cuerpo = document.body && document.body.textContent || "";
+      if (/pisos disponibles en venta/i.test(cuerpo)) return true;
+      if (/obra nueva|edificio de nueva planta/i.test(cuerpo) && esPrecio(cuerpo)) return true;
+    } catch (e) {}
+    return false;
   }
   function esObraNueva() {
-    return /\/obra-nueva\//.test(location.href);
+    if (/\/obra-nueva\//.test(location.href)) return true;
+    try { // mismo origen: miramos si el padre es una ficha de obra nueva
+      if (window.parent && window.parent !== window) {
+        if (/\/obra-nueva\//.test(window.parent.location.href)) return true;
+      }
+    } catch (e) {}
+    try { // último recurso: texto del documento
+      return /obra nueva|edificio de nueva planta|entrega en/i.test(
+        (document.body && document.body.textContent) || "");
+    } catch (e) { return false; }
   }
 
   // autodetecta CCAA por la URL o por enlaces de la página (provincia)
