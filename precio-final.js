@@ -444,6 +444,18 @@
 
     panel.innerHTML = html;
 
+    // ---- blindaje anti-navegación: si el panel acaba dentro de un <a>
+    // (filas de la tabla de unidades), cancelamos la navegación de fondo sin
+    // romper checkboxes ni botones propios (su default solo se cancela en
+    // elementos no interactivos)
+    panel.addEventListener("click", function (ev) {
+      var tg = ev.target && ev.target.tagName;
+      if (tg !== "INPUT" && tg !== "SELECT" && tg !== "OPTION" && tg !== "LABEL" && tg !== "BUTTON") {
+        ev.preventDefault();
+      }
+      ev.stopPropagation();
+    });
+
     // ---- comportamiento
     panel.querySelector(".izpf-x").addEventListener("click", function () { panel.remove(); });
 
@@ -526,9 +538,14 @@
     var precio = num(el.textContent);
     // rango de vivienda (evita referencias, m², fechas… que casen por accidente)
     if (precio < 10000 || precio > 5000000) return;
-    // si el precio vive dentro de un enlace, colgamos del contenedor superior
-    // para que el click no navegue y el panel no herede el enlace
-    var contenedor = (padre.tagName === "A" && padre.parentElement) ? padre.parentElement : padre;
+    // Dónde colgar badge y panel: dentro del propio bloque del precio si es
+    // suficientemente "sólido" (block, flex, table-cell — como las celdas de
+    // la tabla de unidades), o en su padre si es un inline suelto.
+    // NOTA: aunque el bloque esté dentro de un <a> (fila enlazable de idealista),
+    // cancelamos la navegación con preventDefault/stopPropagation en badge y panel.
+    var disp = "";
+    try { disp = window.getComputedStyle(el).display; } catch (e) {}
+    var contenedor = (disp === "inline" || disp === "inline-block" || disp === "inline-flex") ? padre : el;
 
     var obraNueva = esObraNueva();
     var c = cfg();
