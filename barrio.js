@@ -92,6 +92,16 @@
       return r.text();
     }), 30000);
   }
+  // peticiones a idealista EN FILA (una cada 0,8 s): su antibots salta con
+  // ráfagas, y el listado puede pedir informes de varios municipios a la vez
+  var colaIdealista = Promise.resolve();
+  function getIdealista(url) {
+    var p = colaIdealista.then(function () { return getText(url); });
+    colaIdealista = p.catch(function () {}).then(function () {
+      return new Promise(function (ok) { setTimeout(ok, 800); });
+    });
+    return p;
+  }
   function qs(o) {
     return Object.keys(o).map(function (k) { return encodeURIComponent(k) + "=" + encodeURIComponent(o[k]); }).join("&");
   }
@@ -379,7 +389,7 @@
     var ck = "prov:" + ccaa + ":" + norm(provincia);
     var c = cacheGet(ck);
     if (c) return Promise.resolve(c);
-    return getText(base).then(function (h) {
+    return getIdealista(base).then(function (h) {
       var d = new DOMParser().parseFromString(h, "text/html");
       var url = null;
       d.querySelectorAll("a").forEach(function (a) {
@@ -401,16 +411,24 @@
     }
     return null;
   }
+  var precioEnCurso = {};
   function precioZona(ub) {
     var k = "precio:" + norm(ub.items.slice(1).join("|"));
     var c = cacheGet(k);
     if (c) return Promise.resolve(c);
+    if (precioEnCurso[k]) return precioEnCurso[k]; // misma zona pedida por otra tarjeta
+    var p = precioZonaPedir(ub, k);
+    precioEnCurso[k] = p;
+    p.catch(function () {}).then(function () { delete precioEnCurso[k]; });
+    return p;
+  }
+  function precioZonaPedir(ub, k) {
     return urlProvincia(ub.provincia).then(function (provUrl) {
       // de lo general a lo concreto: provincia → municipio → distrito → barrio
       var items = ub.items.slice(0, -1).reverse(); // municipio primero
       var niveles = [];
       function bajar(url, profundidad) {
-        return getText(url).then(function (h) {
+        return getIdealista(url).then(function (h) {
           var inf = parsearInforme(h);
           if (profundidad > 0 && inf.filas[0]) {
             niveles.push({ nombre: inf.filas[0].nombre, m2: inf.filas[0].m2, varAnual: inf.filas[0].varAnual,
@@ -427,7 +445,7 @@
         // alquiler en el mismo nivel (o el municipio si no hay)
         function alquiler(i) {
           if (i < 0) return Promise.resolve(null);
-          return getText(niveles[i].url.replace("/venta/", "/alquiler/")).then(function (h) {
+          return getIdealista(niveles[i].url.replace("/venta/", "/alquiler/")).then(function (h) {
             var inf = parsearInforme(h);
             return inf.filas[0] && inf.filas[0].m2 ? { nombre: inf.filas[0].nombre, m2: inf.filas[0].m2 } : alquiler(i - 1);
           }).catch(function () { return alquiler(i - 1); });
@@ -634,9 +652,9 @@
   // ===================================================================
   // PUNTUACIÓN
   // ===================================================================
-  var PESOS = { zona: 2, inund: 2, renta: 1, servicios: 1.5, coche: 1.5, precio: 1, esfuerzo: 1 };
+  var PESOS = { zona: 2, inund: 2, renta: 1, servicios: 1.5, coche: 1.5, precio: 1, esfuerzo: 1, turisticos: 1 };
   var NOMBRES = { zona: "Tu zona", inund: "Inundación", renta: "Renta del barrio", servicios: "Servicios a pie",
-                  coche: "Conexión", precio: "Precio vs zona", esfuerzo: "Esfuerzo financiero" };
+                  coche: "Conexión", precio: "Precio vs zona", esfuerzo: "Esfuerzo financiero", turisticos: "Pisos turísticos" };
 
   function notaZona(z) {
     if (!z || !z.zonas.length) return null;
@@ -644,6 +662,10 @@
   }
   function notaInund(r) {
     if (!r) return null;
+    if (r.soloMunicipio) {   // listado sin calle: solo sabemos cómo le fue al municipio
+      if (!r.decreto) return null;
+      return r.riesgoMun && /alto/i.test(r.riesgoMun.riesgoperi || "") ? 4 : 6;
+    }
     if (r.danaDentro) return 1;
     var p = r.patri[0] && r.patri[0].nivel;
     if (p && p <= 2) return 1;
@@ -652,6 +674,12 @@
     if (r.danaCerca || r.patriCerca.length) return 6;
     if (r.decreto) return 8;
     return 10;
+  }
+  // % de viviendas turísticas en la sección censal (INE, mayo 2026)
+  function notaTuristicos(r) {
+    if (!r || r.turisticas == null) return null;
+    var t = r.turisticas;
+    return t <= 1 ? 10 : t <= 3 ? 8 : t <= 6 ? 5 : t <= 10 ? 3 : 1;
   }
   function notaRenta(r) {
     if (!r || r.pctProv == null) return null;
@@ -714,7 +742,8 @@
     var notas = {
       zona: notaZona(S.zona), inund: notaInund(S.inund), renta: notaRenta(S.renta),
       servicios: notaServicios(S.servicios), coche: notaCoche(S.coche),
-      precio: notaPrecio(S.anuncio, S.precio), esfuerzo: notaEsfuerzo(S.anuncio)
+      precio: notaPrecio(S.anuncio, S.precio), esfuerzo: notaEsfuerzo(S.anuncio),
+      turisticos: notaTuristicos(S.renta)
     };
     var suma = 0, peso = 0, n = 0;
     for (var k in notas) {
@@ -724,11 +753,16 @@
     var total = peso ? suma / peso : null;
     // la DANA es eliminatoria: el resto no compensa que se haya inundado
     if (S.inund && S.inund.danaDentro && total != null) total = Math.min(total, 3.5);
+    // tu clasificación en rojo también manda (es tu criterio de peligrosidad)
+    var zr = S.zona && S.zona.zonas[0];
+    if (zr && (zr.veredicto === "mal" || zr.veredicto === "muy_mal") && total != null) total = Math.min(total, 4.9);
     return { notas: notas, total: total, n: n };
   }
   function etiquetaTotal(t, S) {
     if (t == null) return ["Calculando…", "neutro"];
     if (S.inund && S.inund.danaDentro) return ["Se inundó en la DANA 2024", "mal"];
+    var zr = S.zona && S.zona.zonas[0];
+    if (zr && (zr.veredicto === "mal" || zr.veredicto === "muy_mal")) return ["Zona roja: mejor descartar", "mal"];
     if (t >= 8) return ["Muy buena candidata", "bien"];
     if (t >= 6.5) return ["Buena candidata", "bien"];
     if (t >= 5) return ["Con pegas: mírala con calma", "aviso"];
@@ -746,6 +780,11 @@
       else if (z.veredicto === "regular") contra.push("Zona normal / en transición según tu clasificación (" + z.nombre + ")");
     }
     var I = S.inund;
+    if (I && I.soloMunicipio) {
+      if (I.decreto) contra.push("Municipio afectado por la DANA 2024" + (I.riesgoMun && I.riesgoMun.riesgoperi ? " (riesgo " + I.riesgoMun.riesgoperi.toLowerCase() + ")" : "") +
+        ": el anuncio no da la calle, mira la ficha");
+      I = null;
+    }
     if (I) {
       if (I.danaDentro) contra.push("La calle se inundó en la DANA del 29-oct-2024");
       else if (I.danaCerca) contra.push("Hubo inundación de la DANA 2024 a menos de ~200 m");
@@ -1031,7 +1070,7 @@
       "<button class='izb-b izb-abrircmp'>⚖ Comparador</button></div>";
     html += "<div class='izb-top'><div class='izb-nota'>" + anillo(P.total, et[1]) +
       "<div class='lab' style='color:" + ({ bien: "#166534", aviso: "#92400e", mal: "#991b1b", neutro: "#374151" })[et[1]] + "'>" + esc(et[0]) + "</div>" +
-      "<div class='sub'>" + P.n + " de 7 criterios" + (pend ? " · cargando " + pend + "…" : "") + "</div></div>";
+      "<div class='sub'>" + P.n + " de 8 criterios" + (pend ? " · cargando " + pend + "…" : "") + "</div></div>";
     html += "<div class='izb-res'><h3>Resumen</h3><div class='dir'>" + esc(S.ub.items.slice(0, 3).join(" · ")) + "</div>";
     if (res.pro.length) html += "<ul>" + res.pro.map(function (x) { return "<li class='p'>" + esc(x) + "</li>"; }).join("") + "</ul>";
     if (res.contra.length) html += "<ul>" + res.contra.map(function (x) {
@@ -1370,6 +1409,7 @@
       dana: S.inund ? (S.inund.danaDentro ? "Se inundó" : S.inund.danaCerca ? "Cerca" : "No") : "",
       patricova: S.inund ? (S.inund.patri[0] ? "Nivel " + S.inund.patri[0].nivel : S.inund.patriCerca[0] ? "Cerca" : "No") : "",
       rentaPersona: S.renta ? S.renta.rentaPersona : null, percentilRenta: S.renta ? S.renta.pctProv : null,
+      turisticas: S.renta && S.renta.turisticas != null ? Math.round(S.renta.turisticas * 10) / 10 : null,
       servicios: e ? e.n + "/" + e.tot : "", supermercadoMin: S.servicios && S.servicios.mejor.super ? minAndando(S.servicios.mejor.super.m) : null,
       cocheMin: rp ? rp.min : null, cocheA: rp ? rp.n : "",
       precioZonaM2: S.precio ? S.precio.zona.m2 : null, varAnualZona: S.precio ? S.precio.zona.varAnual : null,
@@ -1426,6 +1466,7 @@
     ["Cuota/mes", "cuota", fmtE, "min"], ["Esfuerzo", "esfuerzo", function (v) { return fmtP(v); }, "min"],
     ["Renta/persona barrio", "rentaPersona", fmtE, "max"],
     ["Percentil renta prov.", "percentilRenta", function (v) { return v == null ? "—" : "P" + v; }, "max"],
+    ["Pisos turísticos", "turisticas", function (v) { return v == null ? "—" : fmtP(v); }, "min"],
     ["Servicios ≤ 10 min", "servicios"], ["Súper andando", "supermercadoMin", function (v) { return v == null ? "—" : v + " min"; }, "min"],
     ["En coche", "cocheMin", function (v, it) { return v == null ? "—" : v + " min" + (it.cocheA ? " <span style='color:#6b7280'>a " + esc(it.cocheA.replace(/\s*\(.*\)/, "")) + "</span>" : ""); }, "min"],
     ["€/m² zona", "precioZonaM2", function (v) { return v ? fmtN(v) + " €" : "—"; }],
@@ -1464,7 +1505,7 @@
       h += "<tr><th>Notas</th>" + l.map(function (it, i) {
         return "<td><textarea data-i='" + i + "' placeholder='vuestras impresiones…'>" + esc(it.apunte || "") + "</textarea></td>";
       }).join("") + "</tr></table>" +
-        "<p style='font-size:12px;color:#6b7280;margin-top:8px'>En verde, lo mejor de cada fila. La nota pondera: tu zona ×2, inundación ×2, servicios ×1,5, conexión ×1,5, renta, precio y esfuerzo ×1.</p>";
+        "<p style='font-size:12px;color:#6b7280;margin-top:8px'>En verde, lo mejor de cada fila. La nota pondera: tu zona ×2, inundación ×2, servicios ×1,5, conexión ×1,5, renta, precio, esfuerzo y pisos turísticos ×1.</p>";
     }
     h += "</div></div>";
     ov.innerHTML = h;
@@ -1500,7 +1541,7 @@
   }
   function aCSV(l) {
     var cols = ["titulo", "ubicacion", "unidad", "url", "nota", "zona", "dana", "patricova", "precio", "m2", "eurM2", "vsZona",
-      "precioFinal", "cash", "cuota", "esfuerzo", "rentaPersona", "percentilRenta", "servicios", "supermercadoMin",
+      "precioFinal", "cash", "cuota", "esfuerzo", "rentaPersona", "percentilRenta", "turisticas", "servicios", "supermercadoMin",
       "cocheMin", "cocheA", "precioZonaM2", "varAnualZona", "alquilerZonaM2", "apunte", "fecha"];
     function c(v) { v = v == null ? "" : String(v); return /[";\n]/.test(v) ? '"' + v.replace(/"/g, '""') + '"' : v; }
     // separador ";" y BOM: Excel en español lo abre bien a la primera
@@ -1526,6 +1567,431 @@
     document.body.appendChild(a);
     a.click();
     setTimeout(function () { URL.revokeObjectURL(a.href); a.remove(); }, 1000);
+  }
+
+  // =================================================================
+  // LISTADOS DE BÚSQUEDA: nota rápida en cada tarjeta
+  // =================================================================
+  // Las tarjetas no traen coordenadas, y pedir cada ficha a idealista dispara
+  // su antibots. Así que la dirección del título se geocodifica con CartoCiudad
+  // (IGN) y con eso se calculan los mismos criterios que en la ficha.
+  var RE_TIPO = /^(piso|ático|atico|casa|chalet|dúplex|duplex|estudio|loft|apartamento|planta baja|finca|casa o chalet|chalet adosado|chalet pareado|casa adosada|casa de pueblo|casa rural|casa terrera)\s+(independiente\s+)?en\s+/i;
+  var RE_CALLE = /^(calle|carrer|avenida|avinguda|av\.|plaza|plaça|paseo|passeig|rúa|rua|camino|camí|ronda|travesía|carretera|urbanización|glorieta|pasaje|gran vía)\b/i;
+
+  function geocodificarTitulo(titulo) {
+    var t = titulo.replace(RE_TIPO, "").trim();
+    var p = t.split(",").map(function (x) { return x.trim(); }).filter(Boolean);
+    if (!p.length) return Promise.reject(new Error("sin dirección"));
+    var muni = p[p.length - 1].split("/")[0].trim();
+    var cands = [];
+    if (p.length >= 2 && (RE_CALLE.test(p[0]) || /^\d+$/.test(p[1] || ""))) {
+      var calle = p[0] + (/^\d+$/.test(p[1] || "") ? " " + p[1] : "");
+      cands.push([calle + ", " + muni, "calle"]);
+    }
+    if (p.length >= 3) cands.push([p[p.length - 2] + ", " + muni, "barrio"]);
+    else if (p.length === 2 && !RE_CALLE.test(p[0])) cands.push([p[0] + ", " + muni, "barrio"]);
+    cands.push([muni, "municipio"]);
+    function intento(i) {
+      if (i >= cands.length) return Promise.reject(new Error("no se pudo situar"));
+      return getJSON("https://www.cartociudad.es/geocoder/api/geocoder/find?" + qs({ q: cands[i][0] }))
+        .then(function (r) {
+          if (!r || r.lat == null || (r.muni && !mismoNombre(r.muni, muni))) return intento(i + 1);
+          var prec = cands[i][1] === "calle" ? (r.type === "portal" ? "portal" : "calle") : cands[i][1];
+          return { lat: +r.lat, lng: +r.lng, prec: prec, muni: r.muni || muni, provincia: r.province || "" };
+        })
+        .catch(function () { return intento(i + 1); });
+    }
+    return intento(0);
+  }
+
+  // percentil de renta: la distribución de la provincia se baja UNA vez
+  function distribucionRenta(cpro) {
+    var k = "rentaprov:" + cpro;
+    var c = cacheGet(k);
+    if (c) return Promise.resolve(c);
+    var vals = [];
+    function pagina(off) {
+      return getJSON(INE_RENTA + "3/query?" + qs({
+        where: "cpro='" + cpro + "' AND dato1 > 0", outFields: "dato1", returnGeometry: false,
+        orderByFields: "dato1", resultOffset: off, resultRecordCount: 2000, f: "json"
+      })).then(function (d) {
+        (d.features || []).forEach(function (f) { vals.push(Math.round(f.attributes.dato1)); });
+        if (d.exceededTransferLimit && off < 20000) return pagina(off + 2000);
+      });
+    }
+    return pagina(0).then(function () {
+      vals.sort(function (a, b) { return a - b; });
+      cacheSet(k, vals, 60);
+      return vals;
+    });
+  }
+  function rentaLigera(lat, lng) {
+    var k = "rentaL:" + lat.toFixed(4) + "," + lng.toFixed(4);
+    var c = cacheGet(k);
+    if (c) return Promise.resolve(c);
+    return getJSON(INE_RENTA + "3/query?" + qs({
+      geometry: lng + "," + lat, geometryType: "esriGeometryPoint", inSR: 4326,
+      spatialRel: "esriSpatialRelIntersects", outFields: "cusec,cpro,nmun,dato1,dato7",
+      returnGeometry: false, f: "json"
+    })).then(function (d) {
+      var s = d.features && d.features[0] && d.features[0].attributes;
+      if (!s || !s.dato1) throw new Error("sin dato de renta");
+      var tur = getJSON(INE_TUR + "?" + qs({
+        geometry: lng + "," + lat, geometryType: "esriGeometryPoint", inSR: 4326,
+        spatialRel: "esriSpatialRelIntersects", outFields: "porcentaje_vivienda_turistica",
+        returnGeometry: false, f: "json"
+      })).then(function (q) {
+        var a = q.features && q.features[0] && q.features[0].attributes;
+        return a ? (a.porcentaje_vivienda_turistica || 0) : null;
+      }).catch(function () { return null; });
+      return Promise.all([distribucionRenta(s.cpro), tur]).then(function (rr) {
+        var v = rr[0];
+        var lo = 0, hi = v.length;
+        while (lo < hi) { var mid = (lo + hi) >> 1; if (v[mid] < s.dato1) lo = mid + 1; else hi = mid; }
+        var res = { rentaPersona: s.dato1, menores: s.dato7, cusec: s.cusec, municipio: s.nmun,
+                    pctProv: v.length ? Math.round(100 * lo / v.length) : null, turisticas: rr[1] };
+        cacheSet(k, res, 60);
+        return res;
+      });
+    });
+  }
+  function enCV(lat, lng) { return lat > 37.8 && lat < 40.8 && lng > -1.6 && lng < 0.6; }
+
+  function leerTarjeta(art) {
+    var a = art.querySelector("a.item-link");
+    if (!a) return null;
+    var href = a.getAttribute("href") || "";
+    var det = [].slice.call(art.querySelectorAll(".item-detail")).map(function (x) { return x.textContent; }).join(" ");
+    var m2 = numero((det.match(/(\d+(?:[.,]\d+)?)\s*m²/) || [])[1]);
+    return {
+      id: art.getAttribute("data-element-id"), url: location.origin + href.split("?")[0],
+      titulo: a.textContent.replace(/\s+/g, " ").trim(),
+      precio: numero((art.querySelector(".item-price, .price-row") || {}).textContent),
+      m2: m2, obra: /\/obra-nueva\//.test(href)
+    };
+  }
+
+  var L = { tarjetas: [], cola: [], activos: 0, coches: {} };
+
+  function evaluarTarjeta(T) {
+    var k = "tarj:" + T.id;
+    var geo = cacheGet(k);
+    var pGeo = geo ? Promise.resolve(geo) : geocodificarTitulo(T.titulo).then(function (g) { cacheSet(k, g, 90); return g; });
+    return pGeo.then(function (g) {
+      T.geo = g;
+      var exacta = g.prec !== "municipio";
+      T.S = { coords: { lat: g.lat, lng: g.lng }, ub: { items: [T.titulo], provincia: g.provincia },
+              anuncio: { precio: T.precio, m2: T.m2, obra: T.obra, unidades: [] }, err: {},
+              zona: zonaPropia(g.lat, g.lng), inund: null, renta: null, servicios: null, coche: null, precio: null };
+      pintarTarjeta(T);
+      var tareas = [];
+      if (exacta && enCV(g.lat, g.lng)) tareas.push(inundacion(g.lat, g.lng).then(function (v) { T.S.inund = v; }).catch(function () {}));
+      // sin calle no se puede mirar el punto: al menos, ¿el municipio sufrió la DANA?
+      if (!exacta && enCV(g.lat, g.lng)) tareas.push(wmsInfo(g.lat, g.lng, [L_DECRETO, L_RIESGO].join(","), 0.0005).then(function (x) {
+        T.S.inund = { soloMunicipio: true, danaDentro: false, danaCerca: false, patri: [], patriCerca: [],
+                      decreto: !!(x[L_DECRETO] && x[L_DECRETO].length), riesgoMun: x[L_RIESGO] && x[L_RIESGO][0] ? x[L_RIESGO][0] : null };
+      }).catch(function () {}));
+      if (exacta) tareas.push(rentaLigera(g.lat, g.lng).then(function (v) { T.S.renta = v; }).catch(function () {}));
+      tareas.push(serviciosLocal(g.lat, g.lng).then(function (v) { T.S.servicios = v; }).catch(function () {}));
+      if (g.provincia) tareas.push(precioZona({ items: ["", g.muni, g.provincia], provincia: g.provincia })
+        .then(function (v) { T.S.precio = v; }).catch(function () {}));
+      return Promise.all(tareas).then(function () { pintarTarjeta(T); });
+    }).catch(function (e) { T.error = e.message; pintarTarjeta(T); });
+  }
+
+  // tiempos en coche de TODAS las tarjetas en una sola petición por destino
+  function cochesListado() {
+    var con = L.tarjetas.filter(function (T) { return T.S && !T.S.coche; });
+    if (!con.length) return;
+    var grupos = {};
+    con.forEach(function (T) {
+      var ds = destinos().filter(function (d) { return dist(T.S.coords.lat, T.S.coords.lng, d.lat, d.lng) < 250000; });
+      var pr = ds.filter(function (d) { return d.principal; })
+        .sort(function (a, b) { return dist(T.S.coords.lat, T.S.coords.lng, a.lat, a.lng) - dist(T.S.coords.lat, T.S.coords.lng, b.lat, b.lng); })[0] || ds[0];
+      if (!pr) { T.S.coche = { rutas: [] }; return; }
+      (grupos[pr.n] = grupos[pr.n] || { d: pr, T: [] }).T.push(T);
+    });
+    Object.keys(grupos).forEach(function (n) {
+      var g = grupos[n];
+      var pts = g.T.map(function (T) { return T.S.coords.lng + "," + T.S.coords.lat; }).concat([g.d.lng + "," + g.d.lat]);
+      getJSON("https://router.project-osrm.org/table/v1/driving/" + pts.join(";") +
+        "?destinations=" + g.T.length + "&annotations=duration")
+        .then(function (r) {
+          g.T.forEach(function (T, i) {
+            var s = r.durations && r.durations[i] && r.durations[i][0];
+            T.S.coche = { rutas: s != null ? [{ n: g.d.n, principal: true, min: Math.round(s / 60) }] : [] };
+            pintarTarjeta(T);
+          });
+          pintarBarra();
+        }).catch(function () {});
+    });
+  }
+
+  function siguiente() {
+    while (L.activos < 3 && L.cola.length) {
+      var T = L.cola.shift();
+      L.activos++;
+      evaluarTarjeta(T).then(function () {
+        L.activos--;
+        pintarBarra();
+        if (!L.cola.length && !L.activos) cochesListado();
+        siguiente();
+      });
+    }
+  }
+
+  var CRIT = [["zona", "Tu zona"], ["inund", "Inundación"], ["renta", "Renta"], ["turisticos", "Pisos turísticos"],
+              ["servicios", "Servicios"], ["coche", "Coche"], ["precio", "Precio/m²"], ["esfuerzo", "Esfuerzo"]];
+  function pintarTarjeta(T) {
+    var art = T.art;
+    var box = art.querySelector(":scope .izl");
+    if (!box) {
+      box = document.createElement("div");
+      box.className = "izl";
+      var ancla = art.querySelector(".price-row") || art.querySelector("a.item-link");
+      if (!ancla || !ancla.parentElement) return;
+      ancla.insertAdjacentElement("afterend", box);
+    }
+    if (T.error) { box.innerHTML = "<span class='izl-err'>🧭 sin nota: " + esc(T.error) + "</span>"; return; }
+    if (!T.S) { box.innerHTML = "<span class='izl-carg'>🧭 calculando nota…</span>"; return; }
+    var P = puntuar(T.S), et = etiquetaTotal(P.total, T.S), cl = et[1];
+    T.nota = P.total;
+    var col = { bien: "#15803d", aviso: "#b45309", mal: "#b91c1c", neutro: "#6b7280" }[cl];
+    var h = "<button class='izl-pill " + cl + "' title='Ver por qué'><b>" + (P.total == null ? "…" : fmtN(P.total, 1)) +
+      "</b><span>" + esc(et[0]) + "</span></button><span class='izl-dots'>";
+    CRIT.forEach(function (c) {
+      var n = P.notas[c[0]];
+      h += "<i class='" + claseNota(n) + "' title='" + c[1] + ": " + (n == null ? "sin dato" : n + "/10") + "'></i>";
+    });
+    h += "</span>" + (T.geo && T.geo.prec !== "portal" ? "<span class='izl-aprox' title='La tarjeta no da la dirección exacta: se usa " +
+      (T.geo.prec === "calle" ? "el centro de la calle" : T.geo.prec === "barrio" ? "el centro del barrio" : "el centro del municipio") +
+      "'>ubicación aprox.</span>" : "");
+    if (T.abierta) {
+      var r = resumen(T.S, P);
+      h += "<div class='izl-det'>" + CRIT.map(function (c) {
+        var n = P.notas[c[0]];
+        return "<span class='izl-c " + claseNota(n) + "'>" + c[1] + " <b>" + (n == null ? "—" : n) + "</b></span>";
+      }).join("") +
+        (r.pro.length ? "<ul>" + r.pro.map(function (x) { return "<li class='p'>" + esc(x) + "</li>"; }).join("") + "</ul>" : "") +
+        (r.contra.length ? "<ul>" + r.contra.map(function (x) { return "<li class='c'>" + esc(x) + "</li>"; }).join("") + "</ul>" : "") +
+        "<span class='izl-nota'>Nota rápida del listado; en la ficha se afina (precio por vivienda, alquiler, hospital…).</span></div>";
+    }
+    box.innerHTML = h;
+    box.style.setProperty("--izl-col", col);
+    aplicarFiltro(T);
+    pintarBarraLuego();
+    reordenarLuego();
+  }
+  var tBarra = null;
+  function pintarBarraLuego() { clearTimeout(tBarra); tBarra = setTimeout(pintarBarra, 150); }
+
+  var LS_FILTROS = "izl_filtros";
+  function filtros() {
+    return lsGet(LS_FILTROS, null) || { min: 0, rojas: false, verdes: false, inund: false, tur: 0, renta: 0 };
+  }
+  // ¿por qué se oculta esta tarjeta? (null = se ve). Sin dato → no se oculta,
+  // salvo "solo verdes", que exige estar en una zona verde
+  function motivoOculta(T) {
+    var f = filtros(), S2 = T.S;
+    if (!S2) return null;
+    var z = S2.zona && S2.zona.zonas[0], v = z ? z.veredicto : null;
+    if (f.verdes && v !== "bien") return "no está en zona verde";
+    if (f.rojas && (v === "mal" || v === "muy_mal")) return "zona roja";
+    if (f.inund && S2.inund && (S2.inund.danaDentro || S2.inund.patri.length)) return "inundable";
+    if (f.tur && S2.renta && S2.renta.turisticas != null && S2.renta.turisticas > f.tur) return "muchos pisos turísticos";
+    if (f.renta && S2.renta && S2.renta.pctProv != null && S2.renta.pctProv < f.renta) return "renta baja";
+    if (f.min && T.nota != null && T.nota < f.min) return "nota baja";
+    return null;
+  }
+  function aplicarFiltro(T) {
+    T.oculta = motivoOculta(T);
+    T.art.style.display = T.oculta ? "none" : "";
+  }
+  function opciones(vals, actual, fmt) {
+    return vals.map(function (v) {
+      return "<option value='" + v + "'" + (+actual === v ? " selected" : "") + ">" + fmt(v) + "</option>";
+    }).join("");
+  }
+  function pintarBarra() {
+    var bar = document.getElementById("izl-bar");
+    if (!bar) return;
+    var hechas = L.tarjetas.filter(function (T) { return T.nota != null || T.error; }).length;
+    var buenas = L.tarjetas.filter(function (T) { return T.nota != null && T.nota >= 6.5; }).length;
+    var f = filtros();
+    var ocultas = L.tarjetas.filter(function (T) { return T.oculta; }).length;
+    // no repintar mientras se usa un desplegable (perdería el foco)
+    if (bar.contains(document.activeElement) && /SELECT|INPUT/.test(document.activeElement.tagName)) {
+      var cont = bar.querySelector(".s");
+      if (cont) cont.textContent = hechas + "/" + L.tarjetas.length + " calculadas · " + buenas + " buenas (≥ 6,5)" + (ocultas ? " · " + ocultas + " ocultas" : "");
+      return;
+    }
+    bar.innerHTML = "<div class='fila'><span class='t'>🧭 Nota de zona</span><span class='s'>" + hechas + "/" + L.tarjetas.length +
+      " calculadas · " + buenas + " buenas (≥ 6,5)" + (ocultas ? " · <b>" + ocultas + " ocultas por el filtro</b>" : "") + "</span>" +
+      "<button class='izl-b izl-ordenar'>Ordenar por nota ↓</button></div>" +
+      "<div class='fila filtros'>" +
+      "<label>Nota mínima <select data-f='min'>" + opciones([0, 5, 6, 6.5, 7, 8], f.min, function (v) { return v ? "≥ " + String(v).replace(".", ",") : "cualquiera"; }) + "</select></label>" +
+      "<label><input type='checkbox' data-f='rojas'" + (f.rojas ? " checked" : "") + "> Ocultar zonas rojas</label>" +
+      "<label><input type='checkbox' data-f='verdes'" + (f.verdes ? " checked" : "") + "> Solo zonas verdes</label>" +
+      "<label><input type='checkbox' data-f='inund'" + (f.inund ? " checked" : "") + "> Ocultar inundables</label>" +
+      "<label>Pisos turísticos <select data-f='tur'>" + opciones([0, 1, 3, 5, 10], f.tur, function (v) { return v ? "≤ " + v + " %" : "da igual"; }) + "</select></label>" +
+      "<label>Renta del barrio <select data-f='renta'>" + opciones([0, 25, 50, 75], f.renta, function (v) { return v ? "más que el " + v + " %" : "da igual"; }) + "</select></label>" +
+      "</div>";
+  }
+  function onCambioFiltro(ev) {
+    var el = ev.target, k = el.getAttribute && el.getAttribute("data-f");
+    if (!k) return;
+    var f = filtros();
+    f[k] = el.type === "checkbox" ? el.checked : parseFloat(el.value);
+    if (k === "verdes" && f.verdes) f.rojas = false;
+    lsSet(LS_FILTROS, f);
+    L.tarjetas.forEach(aplicarFiltro);
+    el.blur();
+    pintarBarra();
+  }
+
+  // ordena las tarjetas de ESTA página por nota (idealista ordena en su
+  // servidor; la nota solo existe aquí). Las que aún no tienen nota, al final
+  function ordenarPorNota() {
+    var arts = L.tarjetas.map(function (T) { return T.art; });
+    var padre = arts[0] && arts[0].parentElement;
+    if (!padre) return;
+    var orden = L.tarjetas.slice().sort(function (a, b) {
+      return (b.nota == null ? -1 : b.nota) - (a.nota == null ? -1 : a.nota);
+    });
+    // la paginación y el pie se quedan al final
+    orden.forEach(function (T) { padre.insertBefore(T.art, primeraNoTarjeta(padre)); });
+  }
+  function primeraNoTarjeta(padre) {
+    // inserta antes de la paginación / elementos finales para no dejarlos en medio
+    return padre.querySelector(":scope > .pagination, :scope > nav, :scope > .items-container-footer") || null;
+  }
+  var tOrden = null;
+  function activarOrdenNota() {
+    L.ordenNota = true;
+    ordenarPorNota();
+    marcarOrden();
+  }
+  function reordenarLuego() {
+    if (!L.ordenNota) return;
+    clearTimeout(tOrden);
+    tOrden = setTimeout(ordenarPorNota, 600);
+  }
+  // opción "Nota" en el selector de orden de idealista (Relevancia · Baratos…)
+  function ponerOrdenNota() {
+    var ul = document.querySelector("#order-by ul");
+    if (!ul || ul.querySelector(".izl-orden-li")) return;
+    var li = document.createElement("li");
+    li.className = "izl-orden-li";
+    li.innerHTML = "<a href='#' class='izl-orden' title='Ordena esta página por la nota de zona de la extensión'>Nota 🧭</a>";
+    var mas = ul.querySelector(":scope > li.dropdown-menu");
+    ul.insertBefore(li, mas || null);
+    marcarOrden();
+  }
+  function marcarOrden() {
+    var a = document.querySelector(".izl-orden");
+    if (!a) return;
+    a.classList.toggle("selected", !!L.ordenNota);
+    if (L.ordenNota) document.querySelectorAll("#order-by ul > li > .selected:not(.izl-orden)").forEach(function (x) {
+      x.classList.add("izl-desel");
+    });
+  }
+
+  function onClickListado(ev) {
+    var t = ev.target;
+    if (!t.closest) return;
+    if (t.closest(".izl-orden")) {
+      ev.preventDefault(); ev.stopPropagation();
+      activarOrdenNota();
+      return;
+    }
+    var izl = t.closest(".izl"), bar = t.closest("#izl-bar");
+    if (!izl && !bar) return;
+    if (bar && t.closest("label, select, input, option")) return; // filtros: comportamiento nativo
+    // que no abra el anuncio: el clic es nuestro
+    ev.preventDefault();
+    ev.stopPropagation();
+    if (izl) {
+      var T = L.tarjetas.filter(function (x) { return x.art.contains(izl); })[0];
+      if (T) { T.abierta = !T.abierta; pintarTarjeta(T); }
+      return;
+    }
+    if (t.closest(".izl-ordenar")) { activarOrdenNota(); return; }
+
+  }
+
+  var CSS_LISTADO = [
+    ".izl{display:flex !important;flex-wrap:wrap !important;align-items:center !important;gap:6px 10px !important;margin:6px 0 4px !important;font-family:inherit !important;}",
+    ".izl *{box-sizing:border-box !important;font-family:inherit !important;}",
+    ".izl-pill{all:unset;cursor:pointer !important;display:inline-flex !important;align-items:center !important;gap:6px !important;border:1px solid var(--izl-col) !important;border-radius:14px !important;padding:2px 10px 2px 3px !important;background:#fff !important;}",
+    ".izl-pill b{display:inline-block !important;min-width:34px !important;text-align:center !important;background:var(--izl-col) !important;color:#fff !important;border-radius:11px !important;padding:1px 6px !important;font-size:14px !important;font-weight:800 !important;}",
+    ".izl-pill span{font-size:12.5px !important;font-weight:600 !important;color:var(--izl-col) !important;}",
+    ".izl-pill:hover{background:#f9fafb !important;}",
+    ".izl-dots{display:inline-flex !important;gap:3px !important;}",
+    ".izl-dots i{width:9px !important;height:9px !important;border-radius:50% !important;background:#d1d5db !important;display:inline-block !important;}",
+    ".izl-dots i.bien{background:#16a34a !important;}.izl-dots i.aviso{background:#f59e0b !important;}.izl-dots i.mal{background:#dc2626 !important;}",
+    ".izl-aprox{font-size:11.5px !important;color:#6b7280 !important;border:1px dashed #d1d5db !important;border-radius:8px !important;padding:0 6px !important;}",
+    ".izl-carg,.izl-err{font-size:12.5px !important;color:#6b7280 !important;}",
+    ".izl-det{flex-basis:100% !important;background:#fafaf9 !important;border:1px solid #eeefeb !important;border-radius:4px !important;padding:8px 10px !important;font-size:13px !important;line-height:1.4 !important;color:#141414 !important;}",
+    ".izl-c{display:inline-block !important;margin:0 6px 4px 0 !important;font-size:12px !important;padding:1px 8px !important;border-radius:10px !important;background:#f3f4f6 !important;color:#374151 !important;}",
+    ".izl-c.bien{background:#dcfce7 !important;color:#166534 !important;}.izl-c.aviso{background:#fef3c7 !important;color:#92400e !important;}.izl-c.mal{background:#fee2e2 !important;color:#991b1b !important;}",
+    ".izl-det ul{list-style:none !important;margin:4px 0 !important;padding:0 !important;}",
+    ".izl-det li{padding:1px 0 1px 18px !important;position:relative !important;list-style:none !important;margin:0 !important;}",
+    ".izl-det li.p::before{content:'✓' !important;position:absolute !important;left:0 !important;color:#15803d !important;font-weight:700 !important;}",
+    ".izl-det li.c::before{content:'!' !important;position:absolute !important;left:3px !important;color:#d97706 !important;font-weight:800 !important;}",
+    ".izl-nota{display:block !important;font-size:11.5px !important;color:#6b7280 !important;margin-top:4px !important;}",
+    "#izl-bar{display:flex !important;flex-wrap:wrap !important;align-items:center !important;gap:8px 12px !important;background:#6f6f6d !important;color:#fff !important;padding:8px 14px !important;margin:0 0 12px !important;border-radius:2px !important;font-family:inherit !important;}",
+    "#izl-bar .fila{display:flex !important;flex-wrap:wrap !important;align-items:center !important;gap:8px 14px !important;flex-basis:100% !important;}",
+    "#izl-bar .filtros{border-top:1px solid rgba(255,255,255,.25) !important;padding-top:8px !important;font-size:13px !important;}",
+    "#izl-bar label{display:inline-flex !important;align-items:center !important;gap:5px !important;color:#fff !important;font-size:13px !important;font-weight:400 !important;margin:0 !important;cursor:pointer !important;}",
+    "#izl-bar input[type=checkbox]{accent-color:#fde047 !important;width:15px !important;height:15px !important;margin:0 !important;position:static !important;opacity:1 !important;appearance:auto !important;}",
+    "#izl-bar select{font-size:13px !important;padding:2px 4px !important;border-radius:4px !important;border:none !important;background:#fff !important;color:#141414 !important;height:auto !important;width:auto !important;}",
+    "#izl-bar .t{font-weight:700 !important;font-size:15px !important;}",
+    ".izl-desel{background:transparent !important;color:inherit !important;font-weight:inherit !important;}",
+    ".izl-orden.selected{font-weight:700 !important;}",
+    "#izl-bar .s{flex:1 !important;font-size:13px !important;opacity:.9 !important;}",
+    "#izl-bar .izl-b{all:unset;cursor:pointer !important;font-size:13px !important;font-weight:600 !important;padding:4px 10px !important;border-radius:4px !important;background:rgba(255,255,255,.15) !important;color:#fff !important;}",
+    "#izl-bar .izl-b:hover{background:rgba(255,255,255,.3) !important;}",
+    "#izl-bar .izl-b.on{background:#fde047 !important;color:#422006 !important;}"
+  ].join("\n");
+
+  var listadoListo = false;
+  function arrancarListado() {
+    var arts = [].slice.call(document.querySelectorAll("article.item[data-element-id]"));
+    if (!arts.length) return;
+    if (!listadoListo) {
+      listadoListo = true;
+      var st = document.createElement("style");
+      st.textContent = CSS_LISTADO;
+      (document.head || document.documentElement).appendChild(st);
+      document.addEventListener("click", onClickListado, true);
+      // tarjetas que llegan después (paginación sin recargar, carga diferida)
+      var tm = null;
+      new MutationObserver(function () {
+        clearTimeout(tm);
+        tm = setTimeout(arrancarListado, 800);
+      }).observe(document.body, { childList: true, subtree: true });
+      var bar = document.createElement("div");
+      bar.id = "izl-bar";
+      bar.addEventListener("change", onCambioFiltro);
+      arts[0].parentElement.insertBefore(bar, arts[0].parentElement.firstChild);
+      log("v" + VERSION + " listado: " + arts.length + " tarjetas");
+      ponerOrdenNota();
+    }
+    var nuevas = 0;
+    arts.forEach(function (art) {
+      if (art.__izl) return;
+      art.__izl = true;
+      nuevas++;
+      var T = leerTarjeta(art);
+      if (!T || !T.titulo) return;
+      T.art = art;
+      L.tarjetas.push(T);
+      L.cola.push(T);
+      pintarTarjeta(T);
+    });
+    if (!nuevas) return; // nada nuevo (p. ej. la mutación la causamos nosotros)
+    pintarBarra();
+    siguiente();
   }
 
   // =================================================================
@@ -1562,7 +2028,7 @@
   function arrancar() {
     actualizarFab();
     var m = location.pathname.match(RE_DETALLE);
-    if (!m) return;
+    if (!m) { arrancarListado(); return; }
     if (arrancadaPara === location.pathname && document.getElementById("izb")) return;
     var coords = coordenadas();
     var an = anclaje();
@@ -1608,7 +2074,10 @@
   }
 
   // cambios de la simulación (entrada, plazo…) en precio-final.js
-  window.addEventListener("iz_cfg", function () { if (S) pintar(); });
+  window.addEventListener("iz_cfg", function () {
+    if (S) pintar();
+    L.tarjetas.forEach(function (T) { if (T.S) pintarTarjeta(T); }); // el esfuerzo depende de la simulación
+  });
   window.addEventListener("iz_urlchange", arrancar);
 
   function iniciar() {

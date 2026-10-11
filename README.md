@@ -251,8 +251,17 @@ y 8 bloques que se despliegan al pulsarlos:
 | Antes de reservar | checklist (aval de las cantidades a cuenta, licencia, nota simple…) que se guarda por vivienda |
 
 La nota pondera tu zona ×2, inundación ×2, servicios ×1,5, conexión ×1,5 y
-renta, precio y esfuerzo ×1. **Si la vivienda está dentro de la huella de la
-DANA, la nota se queda en 3,5 como mucho.**
+renta, precio, esfuerzo y pisos turísticos ×1. **Si la vivienda está dentro de
+la huella de la DANA, la nota se queda en 3,5 como mucho; si está en una zona
+que marcaste en rojo, en 4,9.**
+
+**En los listados de búsqueda** (obra nueva y segunda mano) cada tarjeta lleva
+su nota rápida, con el desglose al pulsarla. La dirección del anuncio se
+geocodifica con CartoCiudad (IGN), sin pedir las fichas a idealista. Arriba
+hay una barra con **filtros** (nota mínima, ocultar zonas rojas / solo verdes,
+ocultar inundables, máximo de pisos turísticos, renta mínima del barrio) que se
+recuerdan, y en el selector de orden de idealista aparece **«Nota 🧭»** para
+ordenar la página por nota.
 
 **Comparador**: botón *☆ Guardar para comparar* en la sección (o *☆ Comparar
 esta* en el panel de cada vivienda de la tabla). El botón flotante *⚖
