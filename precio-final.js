@@ -286,6 +286,14 @@
     ".izpf-scroll>.table{width:auto !important;min-width:100% !important;}" +
     // sin partir líneas: la tabla crece hacia la derecha y se hace scroll
     ".izpf-scroll>.table>.table__row>.table__cell{white-space:nowrap !important;}" +
+    // la barra gris "pisos disponibles en venta" no se va con el scroll
+    ".izpf-scroll>.table__tittle{position:sticky !important;left:0 !important;z-index:3 !important;}" +
+    // las celdas originales largas ("Plaza de garaje incluida…") pueden partir línea
+    ".izpf-scroll>.table>.table__row>.table__cell:not(:first-child):not(.izpf-cell){white-space:normal !important;min-width:64px !important;max-width:150px !important;}" +
+    // la vivienda (1.ª columna) se queda fija al deslizar hacia la derecha
+    ".izpf-scroll>.table>.table__row>.table__cell:first-child{position:sticky !important;left:0 !important;z-index:2 !important;" +
+    "background:#fff !important;box-shadow:6px 0 8px -6px rgba(0,0,0,.18) !important;}" +
+    ".izpf-scroll>.table>.table__row.izpf-sel>.table__cell:first-child{background:#fefce8 !important;}" +
     ".izpf-scroll .izpf-badge{white-space:nowrap !important;}" +
     ".izpf-cell{white-space:nowrap !important;cursor:pointer !important;color:#141414 !important;}" +
     ".izpf-cell .v{font-weight:600 !important;color:#b45309 !important;}" +
@@ -687,7 +695,7 @@
       if (!tabla.querySelector(":scope > .izpf-head")) {
         var cab = document.createElement("div");
         cab.className = "table__row izpf-head";
-        var h = "<span class='table__cell'>Vivienda</span>";
+        var h = "<span class='table__cell'>Vivienda <span style='font-weight:400'>· desliza →</span></span>";
         for (var i = 1; i < max; i++) h += "<span class='table__cell'></span>";
         ["€/m²", "Cash necesario", "Entrada", "Reserva + arras", "Cuota", "Esfuerzo"].forEach(function (t) {
           h += "<span class='table__cell'>" + t + "</span>";

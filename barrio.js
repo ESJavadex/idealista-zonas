@@ -485,6 +485,7 @@
   // instantáneo y sin depender de Overpass. puente.js nos deja la URL base.
   var indiceLocal = null;
   function serviciosLocal(lat, lng) {
+    if (window.__IZ_TEST_SERV) return Promise.resolve(contarServicios(window.__IZ_TEST_SERV, lat, lng)); // pruebas
     var base = document.documentElement.getAttribute("data-izext") || window.__IZ_TEST_EXT;
     if (!base) return Promise.reject(new Error("sin dataset local"));
     indiceLocal = indiceLocal || getJSON(base + "servicios/indice.json");
@@ -495,22 +496,26 @@
       if (!reg) throw new Error("fuera de las regiones descargadas");
       return getJSON(base + "servicios/" + reg.region + ".json");
     }).then(function (d) {
-      var mejor = {}, cuenta = {}, ocio = 0, ocio1k = 0;
-      function ver(cat, f) {
-        if (Math.abs(f[0] - lat) > 0.25 || Math.abs(f[1] - lng) > 0.3) return; // descarte rápido (~25 km)
-        var m = dist(lat, lng, f[0], f[1]);
-        if (cat === "ocio") { if (m <= 500) ocio++; if (m <= 1000) ocio1k++; return; }
-        if (m <= 800) cuenta[cat] = (cuenta[cat] || 0) + 1;
-        if (!mejor[cat] || m < mejor[cat].m) mejor[cat] = { m: m, lat: f[0], lng: f[1], nombre: f[2] || "" };
-      }
-      Object.keys(d.cats).forEach(function (cat) {
-        d.cats[cat].forEach(function (f) {
-          ver(cat, f);
-          if (cat === "super" && /mercadona/i.test(f[2] || "")) ver("mercadona", f);
-        });
-      });
-      return { mejor: mejor, cuenta: cuenta, ocio: ocio, ocio1k: ocio1k, fuente: "OpenStreetMap (copia local " + d.fecha + ")" };
+      return contarServicios(d, lat, lng);
     });
+  }
+  // servicio más cercano por categoría y recuentos alrededor del punto
+  function contarServicios(d, lat, lng) {
+    var mejor = {}, cuenta = {}, ocio = 0, ocio1k = 0;
+    function ver(cat, f) {
+      if (Math.abs(f[0] - lat) > 0.25 || Math.abs(f[1] - lng) > 0.3) return; // descarte rápido (~25 km)
+      var m = dist(lat, lng, f[0], f[1]);
+      if (cat === "ocio") { if (m <= 500) ocio++; if (m <= 1000) ocio1k++; return; }
+      if (m <= 800) cuenta[cat] = (cuenta[cat] || 0) + 1;
+      if (!mejor[cat] || m < mejor[cat].m) mejor[cat] = { m: m, lat: f[0], lng: f[1], nombre: f[2] || "" };
+    }
+    Object.keys(d.cats).forEach(function (cat) {
+      d.cats[cat].forEach(function (f) {
+        ver(cat, f);
+        if (cat === "super" && /mercadona/i.test(f[2] || "")) ver("mercadona", f);
+      });
+    });
+    return { mejor: mejor, cuenta: cuenta, ocio: ocio, ocio1k: ocio1k, fuente: "OpenStreetMap (copia local " + d.fecha + ")" };
   }
   function servicios(lat, lng) {
     return serviciosLocal(lat, lng).catch(function (e) {
@@ -771,7 +776,10 @@
   // ESTILOS
   // ===================================================================
   var CSS = [
-    ".izb{margin:16px 0 !important;font-family:inherit !important;color:#141414 !important;text-align:left !important;}",
+    // mismo aspecto que las cajas de idealista (.ide-box-detail), sin heredar su CSS
+    "#izb{margin:0 12px 24px !important;padding:0 !important;background:#fff !important;border:1px solid #e5e6e1 !important;" +
+    "border-radius:2px !important;box-shadow:0 1px 2px rgba(102,102,100,.24) !important;overflow:hidden !important;}",
+    ".izb{font-family:inherit !important;color:#141414 !important;text-align:left !important;}",
     ".izb *{box-sizing:border-box !important;font-family:inherit !important;}",
     ".izb .izb-bar{display:flex !important;align-items:center !important;gap:10px !important;background:#6f6f6d !important;color:#fff !important;padding:6px 16px !important;font-weight:700 !important;font-size:16px !important;}",
     ".izb .izb-bar .t{flex:1 !important;}",
@@ -1543,7 +1551,7 @@
     if (!box) {
       box = document.createElement("section");
       box.id = "izb";
-      box.className = "izb ide-box-detail overlay-box";
+      box.className = "izb";
       if (an.despues) an.despues.insertAdjacentElement("afterend", box);
       else an.padre.insertBefore(box, an.antes || null);
       box.addEventListener("click", onClick);
