@@ -255,13 +255,42 @@
     "text-transform:none !important;}" +
     ".izpf-panel .izpf-x:hover{color:#334155 !important;}";
 
-  var cssPuesto = false;
+  var raicesEstiladas = new Set();
   function ponerCSS() {
-    if (cssPuesto) return;
-    var st = document.createElement("style");
-    st.textContent = CSS;
-    document.head.appendChild(st);
-    cssPuesto = true;
+    // el CSS en <head> solo estiliza el light DOM; si el precio está en un
+    // shadow root hay que colgarle su propia copia del CSS (árbol de estilos aparte)
+    raicesDOM().forEach(function (raiz) {
+      if (raiz === document) {
+        if (raicesEstiladas.has(document)) return;
+        var st = document.createElement("style");
+        st.textContent = CSS;
+        document.head.appendChild(st);
+        raicesEstiladas.add(document);
+      } else {
+        if (raicesEstiladas.has(raiz)) return;
+        var st2 = document.createElement("style");
+        st2.textContent = CSS;
+        raiz.appendChild(st2);
+        raicesEstiladas.add(raiz);
+      }
+    });
+  }
+  // documento + todos los shadowRoots abiertos, recursivo
+  function raicesDOM() {
+    var raices = [document];
+    function buscar(r) {
+      try {
+        var todos = r.querySelectorAll("*");
+        for (var i = 0; i < todos.length; i++) {
+          if (todos[i].shadowRoot) {
+            raices.push(todos[i].shadowRoot);
+            buscar(todos[i].shadowRoot);
+          }
+        }
+      } catch (e) {}
+    }
+    buscar(document);
+    return raices;
   }
 
   // -------------------------------------------------------------- panel
@@ -532,58 +561,68 @@
     return r.width > 0 && r.height > 0;
   }
 
+  // escanea una raíz (document o shadow root) y devuelve nº de badges nuevos
+  function escanearRaiz(raiz) {
+    var candidatos = 0, nuevos = 0;
+    var walker = document.createTreeWalker(raiz, NodeFilter.SHOW_TEXT, null);
+    var node;
+    while ((node = walker.nextNode())) {
+      var t = node.nodeValue || "";
+      // rama A: precio con € en el propio nodo ("Desde 242.000 €")
+      // rama B: idealista parte el precio y la divisa en nodos distintos
+      //         ("242.000" + " €") — exigimos separadores de miles para no
+      //         pillar referencias ni estadísticas ("49254", "107807646")
+      var m = t.match(/(?:desde\s+)?\d{1,3}(?:\.\d{3})*\s?€/i) ||
+              t.match(/(?:desde\s+)?\d{1,3}(?:\.\d{3})+/);
+      if (!m) continue;
+      var host = node.parentElement;
+      if (!host || !visible(host)) continue;
+      if (host.closest(".izpf-panel") || host.closest(".izpf-badge")) continue;
+
+      // subir como mucho 4 niveles hasta que el bloque sea ~el precio solo
+      var objetivo = host, subidas = 0;
+      while (objetivo.parentElement && subidas < 4) {
+        var pt = (objetivo.parentElement.textContent || "").trim();
+        if (pt.length <= m[0].trim().length + 12 && visible(objetivo.parentElement)) {
+          objetivo = objetivo.parentElement; subidas++;
+        } else break;
+      }
+      // si aun así el bloque trae más cosas (fila entera), lo saltamos
+      if ((objetivo.textContent || "").trim().length > m[0].trim().length + 12) continue;
+      if (objetivo.__izpf || familiaConBadge(objetivo)) continue;
+
+      candidatos++;
+      inyectarEn(objetivo);
+      nuevos++;
+      if (candidatos >= 40) break;
+    }
+    // diagnóstico: si el último badge quedó en un sitio que no se pinta, lo decimos
+    var badges = document.querySelectorAll(".izpf-badge");
+    var ultimo = badges.length ? badges[badges.length - 1] : null;
+    if (nuevos && ultimo && !visible(ultimo)) {
+      log("ojo: badge inyectado pero NO visible (contenedor <" +
+        (ultimo.parentElement ? ultimo.parentElement.tagName : "?") +
+        " class=\"" + ((ultimo.parentElement || {}).className || "") + "\">");
+    }
+    return nuevos;
+  }
+
   function buscarPrecios() {
     if (!encendido() || !esDetalle()) return;
     try {
       ponerCSS();
 
-      // Escaneo por NODOS DE TEXTO: encuentra el precio esté donde esté
-      // (cabecera "Desde 242.000 €", tabla de unidades, etc.), luego sube
-      // hasta el bloque más pequeño cuyo texto sea ~solo el precio.
-      var candidatos = 0;
-      var walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT, null);
-      var node;
-      while ((node = walker.nextNode())) {
-        var t = node.nodeValue || "";
-        // rama A: precio con € en el propio nodo ("Desde 242.000 €")
-        // rama B: idealista parte el precio y la divisa en nodos distintos
-        //         ("242.000" + " €") — exigimos separadores de miles para no
-        //         pillar referencias ni estadísticas ("49254", "107807646")
-        var m = t.match(/(?:desde\s+)?\d{1,3}(?:\.\d{3})*\s?€/i) ||
-                t.match(/(?:desde\s+)?\d{1,3}(?:\.\d{3})+/);
-        if (!m) continue;
-        var host = node.parentElement;
-        if (!host || !visible(host)) continue;
-        if (host.closest(".izpf-panel") || host.closest(".izpf-badge")) continue;
+      // Escaneo por NODOS DE TEXTO en el documento Y en cada shadow root:
+      // la tabla "pisos disponibles en venta" es un web component y no se ve
+      // desde el documento principal sin esto.
+      var nuevos = 0;
+      raicesDOM().forEach(function (raiz) {
+        nuevos += escanearRaiz(raiz);
+      });
 
-        // subir como mucho 4 niveles hasta que el bloque sea ~el precio solo
-        var objetivo = host, subidas = 0;
-        while (objetivo.parentElement && subidas < 4) {
-          var pt = (objetivo.parentElement.textContent || "").trim();
-          if (pt.length <= m[0].trim().length + 12 && visible(objetivo.parentElement)) {
-            objetivo = objetivo.parentElement; subidas++;
-          } else break;
-        }
-        // si aun así el bloque trae más cosas (fila entera), lo saltamos
-        if ((objetivo.textContent || "").trim().length > m[0].trim().length + 12) continue;
-        if (objetivo.__izpf || familiaConBadge(objetivo)) continue;
-
-        candidatos++;
-        inyectarEn(objetivo);
-        if (candidatos >= 40) break;
-        // diagnóstico: si el badge quedó en un sitio que no se pinta, lo decimos
-        var badges = document.querySelectorAll(".izpf-badge");
-        var ultimo = badges.length ? badges[badges.length - 1] : null;
-        if (ultimo && !visible(ultimo)) {
-          log("ojo: badge para " + (objetivo.textContent || "").trim() +
-            " inyectado pero NO visible (contenedor <" +
-            (objetivo.parentElement ? objetivo.parentElement.tagName : "?") +
-            " class=\"" + ((objetivo.parentElement || {}).className || "") + "\">");
-        }
-      }
       var total = document.querySelectorAll(".izpf-badge").length;
-      if (total > 0) log(total + " precio(s) final(es) visibles (candidatos: " + candidatos + ")");
-      else log("detalle sin inyectar — candidatos:" + candidatos);
+      if (total > 0) log(total + " precio(s) final(es) visibles (nuevos: " + nuevos + ")");
+      else log("detalle sin inyectar — nuevos:" + nuevos);
     } catch (e) {
       log("ERROR en buscarPrecios: " + e.message + "\n" + (e.stack || ""));
     }
