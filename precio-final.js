@@ -467,11 +467,17 @@
     if (el.__izpf) return;
     // nunca inyectar dentro de nuestros propios paneles/badges
     if (el.closest && el.closest(".izpf-panel")) return;
+    if (el.closest && el.closest(".izpf-badge")) return;
+    // solo donde se ve de verdad (idealista tiene copias ocultas del precio)
+    if (!visible(el)) return;
     el.__izpf = true;
     var padre = el.parentElement;
     if (!padre) return;
     var precio = num(el.textContent);
     if (precio < 5000) return; // no es un precio de vivienda
+    // si el precio vive dentro de un enlace, colgamos del contenedor superior
+    // para que el click no navegue y el panel no herede el enlace
+    var contenedor = (padre.tagName === "A" && padre.parentElement) ? padre.parentElement : padre;
 
     var obraNueva = esObraNueva();
     var c = cfg();
@@ -487,18 +493,20 @@
         " · cuota " + fmt(r.cuota) + "/mes"
       : "precio final <b>" + fmt(r.final) + "</b>";
     badge.title = "Precio real con impuestos y gastos (IVA/AJD/ITP + notaría, registro…) — click para desglose completo, líquido, cronograma y simulación de hipoteca";
-    badge.addEventListener("click", function () {
+    badge.addEventListener("click", function (ev) {
+      ev.preventDefault();   // por si estamos dentro de un enlace
+      ev.stopPropagation();
       // incrustado en el propio bloque del precio: el panel es hermano del
       // badge, en flujo normal, así empuja el contenido como cualquier
       // elemento más de la página
-      var ya = padre.querySelector(":scope > .izpf-panel");
+      var ya = contenedor.querySelector(":scope > .izpf-panel");
       if (ya) { ya.remove(); return; }
       // cierra otros paneles abiertos
       document.querySelectorAll(".izpf-panel").forEach(function (p) { p.remove(); });
       var panel = crearPanel(precio, obraNueva, cfg());
-      padre.appendChild(panel);
+      contenedor.appendChild(panel);
     });
-    padre.appendChild(badge);
+    contenedor.appendChild(badge);
   }
 
   // ------------------------------------------------------------- barrido
@@ -517,46 +525,50 @@
   function log(m) {
     try { console.log("[idealista-zonas/precio-final] " + m); } catch (e) {}
   }
+  // ¿se ve de verdad? (display:none o fuera de pantalla => rect vacío)
+  function visible(el) {
+    var r = el.getBoundingClientRect();
+    return r.width > 0 && r.height > 0;
+  }
 
   function buscarPrecios() {
     if (!encendido() || !esDetalle()) return;
     try {
       ponerCSS();
 
-      // 1) selectores habituales del precio principal
-      ["#priceContainer", ".info-data.price", ".price", ".js-price", ".txt-price"]
-        .forEach(function (sel) {
-          try {
-            document.querySelectorAll(sel).forEach(function (el) {
-              if (!el.__izpf && !familiaConBadge(el)) inyectarEn(el);
-            });
-          } catch (e) { log("error selector " + sel + ": " + e.message); }
-        });
+      // Escaneo por NODOS DE TEXTO: encuentra el precio esté donde esté
+      // (cabecera "Desde 242.000 €", tabla de unidades, etc.), luego sube
+      // hasta el bloque más pequeño cuyo texto sea ~solo el precio.
+      var candidatos = 0;
+      var walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT, null);
+      var node;
+      while ((node = walker.nextNode())) {
+        var t = node.nodeValue || "";
+        var m = t.match(/(?:desde\s+)?\d{1,3}(?:\.\d{3})*\s?€/i);
+        if (!m) continue;
+        var host = node.parentElement;
+        if (!host || !visible(host)) continue;
+        if (host.closest(".izpf-panel") || host.closest(".izpf-badge")) continue;
 
-      // 2) barrido SIEMPRE: coge la tabla "pisos disponibles en venta" y
-      //    cualquier otro precio exacto aunque idealista cambie las clases
-      var todos = document.querySelectorAll("div,span,td,p,a,li");
-      var n = 0, candidatos = 0;
-      for (var i = 0; i < todos.length && n < 80; i++) {
-        var el = todos[i];
-        if (el.children.length > 1 || el.__izpf) continue;
-        // no marcar precios dentro de nuestros paneles ni duplicar familia
-        if (el.closest && el.closest(".izpf-panel")) continue;
-        if (familiaConBadge(el)) continue;
-        // "242.000 €" o "Desde 242.000 €" exactos, texto corto
-        if (esPrecio(el.textContent) && el.textContent.trim().length <= 20) {
-          candidatos++;
-          // solo si va en negrita o dentro del área de info/tablas
-          var fw = parseInt((window.getComputedStyle(el).fontWeight || "0"), 10);
-          if (fw >= 600 || el.closest(".info, .container, main, table")) {
-            inyectarEn(el);
-            n++;
-          }
+        // subir como mucho 4 niveles hasta que el bloque sea ~el precio solo
+        var objetivo = host, subidas = 0;
+        while (objetivo.parentElement && subidas < 4) {
+          var pt = (objetivo.parentElement.textContent || "").trim();
+          if (pt.length <= m[0].trim().length + 12 && visible(objetivo.parentElement)) {
+            objetivo = objetivo.parentElement; subidas++;
+          } else break;
         }
+        // si aun así el bloque trae más cosas (fila entera), lo saltamos
+        if ((objetivo.textContent || "").trim().length > m[0].trim().length + 12) continue;
+        if (objetivo.__izpf || familiaConBadge(objetivo)) continue;
+
+        candidatos++;
+        inyectarEn(objetivo);
+        if (candidatos >= 40) break;
       }
-      var puestos = document.querySelectorAll(".izpf-badge").length;
-      if (puestos > 0) log(puestos + " precio(s) final(es) visibles (candidatos: " + candidatos + ")");
-      else log("detalle sin inyectar — candidatos:" + candidatos + " elementos:" + todos.length);
+      var total = document.querySelectorAll(".izpf-badge").length;
+      if (total > 0) log(total + " precio(s) final(es) visibles (candidatos: " + candidatos + ")");
+      else log("detalle sin inyectar — candidatos:" + candidatos);
     } catch (e) {
       log("ERROR en buscarPrecios: " + e.message + "\n" + (e.stack || ""));
     }
