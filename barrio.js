@@ -65,7 +65,9 @@
   function lsGet(k, def) {
     try { var v = localStorage.getItem(k); return v == null ? def : JSON.parse(v); } catch (e) { return def; }
   }
-  function lsSet(k, v) { try { localStorage.setItem(k, JSON.stringify(v)); } catch (e) {} }
+  function lsSet(k, v) {
+    try { localStorage.setItem(k, JSON.stringify(v)); return true; } catch (e) { return false; }
+  }
 
   // caché con caducidad (días)
   function cacheGet(k) {
@@ -73,7 +75,28 @@
     if (!o || !o.t || Date.now() - o.t > o.ttl) return null;
     return o.v;
   }
-  function cacheSet(k, v, dias) { lsSet("izb_c:" + k, { t: Date.now(), ttl: dias * 864e5, v: v }); }
+  function cacheSet(k, v, dias) {
+    var o = { t: Date.now(), ttl: dias * 864e5, v: v };
+    if (!lsSet("izb_c:" + k, o)) { purgarCache(true); lsSet("izb_c:" + k, o); } // sin espacio: limpiar y reintentar
+  }
+  // borra lo caducado (y, si falta espacio, lo más viejo)
+  function purgarCache(agresivo) {
+    try {
+      var ks = [];
+      for (var i = 0; i < localStorage.length; i++) {
+        var k = localStorage.key(i);
+        if (k && k.indexOf("izb_c:") === 0) ks.push(k);
+      }
+      var ahora = Date.now(), vivos = [];
+      ks.forEach(function (k) {
+        var o = lsGet(k, null);
+        if (!o || !o.t || ahora - o.t > o.ttl) localStorage.removeItem(k);
+        else vivos.push([o.t, k]);
+      });
+      if (agresivo) vivos.sort().slice(0, Math.ceil(vivos.length / 3)).forEach(function (x) { localStorage.removeItem(x[1]); });
+    } catch (e) {}
+  }
+  setTimeout(purgarCache, 5000);
 
   function conTimeout(p, ms) {
     return Promise.race([p, new Promise(function (_, rej) {
@@ -1578,6 +1601,17 @@
   var RE_TIPO = /^(piso|ático|atico|casa|chalet|dúplex|duplex|estudio|loft|apartamento|planta baja|finca|casa o chalet|chalet adosado|chalet pareado|casa adosada|casa de pueblo|casa rural|casa terrera)\s+(independiente\s+)?en\s+/i;
   var RE_CALLE = /^(calle|carrer|avenida|avinguda|av\.|plaza|plaça|paseo|passeig|rúa|rua|camino|camí|ronda|travesía|carretera|urbanización|glorieta|pasaje|gran vía)\b/i;
 
+  // idealista usa nombres de núcleo ("Playa Puig", "Puerto de Sagunto") que no
+  // son el municipio oficial: vale si comparten alguna palabra significativa
+  var VACIAS = /^(playa|platja|puerto|port|urbanizacion|urb|de|del|la|las|los|les|el|els|l|d|y|i|san|sant|santa)$/;
+  function palabras(t) {
+    return norm(t).split(/[^a-z0-9]+/).filter(function (w) { return w.length >= 3 && !VACIAS.test(w); });
+  }
+  function mismoMunicipio(r, muni) {
+    if (mismoNombre(r.muni, muni)) return true;
+    var obj = palabras((r.muni || "") + " " + (r.poblacion || ""));
+    return palabras(muni).some(function (w) { return obj.indexOf(w) !== -1; });
+  }
   function geocodificarTitulo(titulo) {
     var t = titulo.replace(RE_TIPO, "").trim();
     var p = t.split(",").map(function (x) { return x.trim(); }).filter(Boolean);
@@ -1595,7 +1629,7 @@
       if (i >= cands.length) return Promise.reject(new Error("no se pudo situar"));
       return getJSON("https://www.cartociudad.es/geocoder/api/geocoder/find?" + qs({ q: cands[i][0] }))
         .then(function (r) {
-          if (!r || r.lat == null || (r.muni && !mismoNombre(r.muni, muni))) return intento(i + 1);
+          if (!r || r.lat == null || (r.muni && !mismoMunicipio(r, muni))) return intento(i + 1);
           var prec = cands[i][1] === "calle" ? (r.type === "portal" ? "portal" : "calle") : cands[i][1];
           return { lat: +r.lat, lng: +r.lng, prec: prec, muni: r.muni || muni, provincia: r.province || "" };
         })
@@ -1673,29 +1707,53 @@
 
   var L = { tarjetas: [], cola: [], activos: 0, coches: {} };
 
+  // último recurso si la dirección no se puede situar: las coordenadas de la
+  // ficha (en la cola lenta de idealista y con tope por página)
+  function coordsDeFicha(url) {
+    if ((L.fichasPedidas = (L.fichasPedidas || 0) + 1) > 6) return Promise.reject(new Error("no se pudo situar"));
+    return getIdealista(url).then(function (h) {
+      var m = h.match(/center=(-?\d+\.\d+)(?:%2C|,)(-?\d+\.\d+)/);
+      if (!m) throw new Error("no se pudo situar");
+      var d = new DOMParser().parseFromString(h, "text/html");
+      var it = [].slice.call(d.querySelectorAll("#headerMap li")).map(function (li) { return li.textContent.replace(/\s+/g, " ").trim(); });
+      return { lat: +m[1], lng: +m[2], prec: "portal", muni: it.length > 1 ? it[it.length - 2] : "",
+               provincia: it.length ? it[it.length - 1].split(",").pop().trim() : "" };
+    });
+  }
+
   function evaluarTarjeta(T) {
-    var k = "tarj:" + T.id;
+    var k = "tarj:" + T.id;   // coordenadas: de la geocodificación o de la ficha (si la visitaste)
     var geo = cacheGet(k);
-    var pGeo = geo ? Promise.resolve(geo) : geocodificarTitulo(T.titulo).then(function (g) { cacheSet(k, g, 90); return g; });
+    var pGeo = geo ? Promise.resolve(geo) : geocodificarTitulo(T.titulo)
+      .catch(function () { return coordsDeFicha(T.url); })
+      .then(function (g) { cacheSet(k, g, 90); return g; });
     return pGeo.then(function (g) {
       T.geo = g;
       var exacta = g.prec !== "municipio";
       T.S = { coords: { lat: g.lat, lng: g.lng }, ub: { items: [T.titulo], provincia: g.provincia },
               anuncio: { precio: T.precio, m2: T.m2, obra: T.obra, unidades: [] }, err: {},
-              zona: zonaPropia(g.lat, g.lng), inund: null, renta: null, servicios: null, coche: null, precio: null };
+              zona: zonaPropia(g.lat, g.lng), inund: null, renta: null, servicios: null,
+              coche: cacheGet("cocheL:" + g.lat.toFixed(4) + "," + g.lng.toFixed(4)), precio: null };
+      T.pend = 0;
       pintarTarjeta(T);
+      // cada dato se pinta en cuanto llega (casi todo sale de caché al volver)
+      function tarea(p, campo) {
+        T.pend++;
+        return p.then(function (v) { if (v !== undefined) T.S[campo] = v; })
+          .catch(function () {})
+          .then(function () { T.pend--; pintarTarjeta(T); });
+      }
       var tareas = [];
-      if (exacta && enCV(g.lat, g.lng)) tareas.push(inundacion(g.lat, g.lng).then(function (v) { T.S.inund = v; }).catch(function () {}));
+      if (exacta && enCV(g.lat, g.lng)) tareas.push(tarea(inundacion(g.lat, g.lng), "inund"));
       // sin calle no se puede mirar el punto: al menos, ¿el municipio sufrió la DANA?
-      if (!exacta && enCV(g.lat, g.lng)) tareas.push(wmsInfo(g.lat, g.lng, [L_DECRETO, L_RIESGO].join(","), 0.0005).then(function (x) {
-        T.S.inund = { soloMunicipio: true, danaDentro: false, danaCerca: false, patri: [], patriCerca: [],
-                      decreto: !!(x[L_DECRETO] && x[L_DECRETO].length), riesgoMun: x[L_RIESGO] && x[L_RIESGO][0] ? x[L_RIESGO][0] : null };
-      }).catch(function () {}));
-      if (exacta) tareas.push(rentaLigera(g.lat, g.lng).then(function (v) { T.S.renta = v; }).catch(function () {}));
-      tareas.push(serviciosLocal(g.lat, g.lng).then(function (v) { T.S.servicios = v; }).catch(function () {}));
-      if (g.provincia) tareas.push(precioZona({ items: ["", g.muni, g.provincia], provincia: g.provincia })
-        .then(function (v) { T.S.precio = v; }).catch(function () {}));
-      return Promise.all(tareas).then(function () { pintarTarjeta(T); });
+      if (!exacta && enCV(g.lat, g.lng)) tareas.push(tarea(wmsInfo(g.lat, g.lng, [L_DECRETO, L_RIESGO].join(","), 0.0005).then(function (x) {
+        return { soloMunicipio: true, danaDentro: false, danaCerca: false, patri: [], patriCerca: [],
+                 decreto: !!(x[L_DECRETO] && x[L_DECRETO].length), riesgoMun: x[L_RIESGO] && x[L_RIESGO][0] ? x[L_RIESGO][0] : null };
+      }), "inund"));
+      if (exacta) tareas.push(tarea(rentaLigera(g.lat, g.lng), "renta"));
+      tareas.push(tarea(serviciosLocal(g.lat, g.lng), "servicios"));
+      if (g.provincia) tareas.push(tarea(precioZona({ items: ["", g.muni, g.provincia], provincia: g.provincia }), "precio"));
+      return Promise.all(tareas);
     }).catch(function (e) { T.error = e.message; pintarTarjeta(T); });
   }
 
@@ -1720,6 +1778,7 @@
           g.T.forEach(function (T, i) {
             var s = r.durations && r.durations[i] && r.durations[i][0];
             T.S.coche = { rutas: s != null ? [{ n: g.d.n, principal: true, min: Math.round(s / 60) }] : [] };
+            cacheSet("cocheL:" + T.S.coords.lat.toFixed(4) + "," + T.S.coords.lng.toFixed(4), T.S.coche, 60);
             pintarTarjeta(T);
           });
           pintarBarra();
@@ -1763,7 +1822,8 @@
       var n = P.notas[c[0]];
       h += "<i class='" + claseNota(n) + "' title='" + c[1] + ": " + (n == null ? "sin dato" : n + "/10") + "'></i>";
     });
-    h += "</span>" + (T.geo && T.geo.prec !== "portal" ? "<span class='izl-aprox' title='La tarjeta no da la dirección exacta: se usa " +
+    h += "</span>" + (T.pend ? "<span class='izl-carg'>calculando " + T.pend + "…</span>" : "") +
+      (T.geo && T.geo.prec !== "portal" ? "<span class='izl-aprox' title='La tarjeta no da la dirección exacta: se usa " +
       (T.geo.prec === "calle" ? "el centro de la calle" : T.geo.prec === "barrio" ? "el centro del barrio" : "el centro del municipio") +
       "'>ubicación aprox.</span>" : "");
     if (T.abierta) {
@@ -1798,14 +1858,26 @@
     if (f.verdes && v !== "bien") return "no está en zona verde";
     if (f.rojas && (v === "mal" || v === "muy_mal")) return "zona roja";
     if (f.inund && S2.inund && (S2.inund.danaDentro || S2.inund.patri.length)) return "inundable";
-    if (f.tur && S2.renta && S2.renta.turisticas != null && S2.renta.turisticas > f.tur) return "muchos pisos turísticos";
-    if (f.renta && S2.renta && S2.renta.pctProv != null && S2.renta.pctProv < f.renta) return "renta baja";
-    if (f.min && T.nota != null && T.nota < f.min) return "nota baja";
+    if (f.tur && S2.renta && S2.renta.turisticas != null && S2.renta.turisticas > f.tur) return "pisos turísticos " + fmtP(S2.renta.turisticas) + " (máx. " + f.tur + " %)";
+    if (f.renta && S2.renta && S2.renta.pctProv != null && S2.renta.pctProv < f.renta) return "renta del barrio por debajo del " + f.renta + " % (P" + S2.renta.pctProv + ")";
+    if (f.min && T.nota != null && T.nota < f.min) return "nota " + fmtN(T.nota, 1) + " (mín. " + String(f.min).replace(".", ",") + ")";
     return null;
   }
+  // las filtradas no desaparecen: quedan plegadas en una línea con el motivo
   function aplicarFiltro(T) {
     T.oculta = motivoOculta(T);
-    T.art.style.display = T.oculta ? "none" : "";
+    var pleg = T.art.querySelector(":scope > .izl-plegada");
+    var plegar = T.oculta && !T.verPese;
+    T.art.classList.toggle("izl-oculta", !!plegar);
+    if (!T.oculta || T.verPese) { if (pleg) pleg.remove(); return; } // "ver": se muestra entera
+    if (!pleg) {
+      pleg = document.createElement("div");
+      pleg.className = "izl-plegada";
+      T.art.insertBefore(pleg, T.art.firstChild);
+    }
+    pleg.innerHTML = "🧭 <b>Oculta por tu filtro:</b> " + esc(T.oculta) +
+      (T.nota != null ? " · nota " + fmtN(T.nota, 1) : "") + " · <span class='izl-titulo'>" + esc(T.titulo) + "</span>" +
+      " <a href='#' class='izl-ver'>ver</a>";
   }
   function opciones(vals, actual, fmt) {
     return vals.map(function (v) {
@@ -1826,7 +1898,7 @@
       return;
     }
     bar.innerHTML = "<div class='fila'><span class='t'>🧭 Nota de zona</span><span class='s'>" + hechas + "/" + L.tarjetas.length +
-      " calculadas · " + buenas + " buenas (≥ 6,5)" + (ocultas ? " · <b>" + ocultas + " ocultas por el filtro</b>" : "") + "</span>" +
+      " calculadas · " + buenas + " buenas (≥ 6,5)" + (ocultas ? " · <b>" + ocultas + " plegadas por tus filtros</b> <a href='#' class='izl-quitar'>quitar filtros</a>" : "") + "</span>" +
       "<button class='izl-b izl-ordenar'>Ordenar por nota ↓</button></div>" +
       "<div class='fila filtros'>" +
       "<label>Nota mínima <select data-f='min'>" + opciones([0, 5, 6, 6.5, 7, 8], f.min, function (v) { return v ? "≥ " + String(v).replace(".", ",") : "cualquiera"; }) + "</select></label>" +
@@ -1852,18 +1924,23 @@
   // ordena las tarjetas de ESTA página por nota (idealista ordena en su
   // servidor; la nota solo existe aquí). Las que aún no tienen nota, al final
   function ordenarPorNota() {
-    var arts = L.tarjetas.map(function (T) { return T.art; });
-    var padre = arts[0] && arts[0].parentElement;
-    if (!padre) return;
+    // idealista intercala otros bloques (publicidad, textos, el pie de la
+    // lista): las tarjetas se reparten en los MISMOS huecos que ocupaban, así
+    // lo demás no se mueve y nada acaba detrás del pie
+    var huecos = L.tarjetas.map(function (T) {
+      var h = document.createComment("izl");
+      T.art.parentNode.insertBefore(h, T.art);
+      return h;
+    });
     var orden = L.tarjetas.slice().sort(function (a, b) {
       return (b.nota == null ? -1 : b.nota) - (a.nota == null ? -1 : a.nota);
     });
-    // la paginación y el pie se quedan al final
-    orden.forEach(function (T) { padre.insertBefore(T.art, primeraNoTarjeta(padre)); });
-  }
-  function primeraNoTarjeta(padre) {
-    // inserta antes de la paginación / elementos finales para no dejarlos en medio
-    return padre.querySelector(":scope > .pagination, :scope > nav, :scope > .items-container-footer") || null;
+    // los huecos en orden de documento
+    huecos.sort(function (x, y) { return x.compareDocumentPosition(y) & Node.DOCUMENT_POSITION_FOLLOWING ? -1 : 1; });
+    huecos.forEach(function (h, i) {
+      h.parentNode.insertBefore(orden[i].art, h);
+      h.remove();
+    });
   }
   var tOrden = null;
   function activarOrdenNota() {
@@ -1905,11 +1982,25 @@
       return;
     }
     var izl = t.closest(".izl"), bar = t.closest("#izl-bar");
-    if (!izl && !bar) return;
+    if (!izl && !bar && !t.closest(".izl-plegada")) return;
     if (bar && t.closest("label, select, input, option")) return; // filtros: comportamiento nativo
     // que no abra el anuncio: el clic es nuestro
     ev.preventDefault();
     ev.stopPropagation();
+    var pl = t.closest(".izl-plegada");
+    if (pl) {
+      ev.preventDefault(); ev.stopPropagation();
+      var Tp = L.tarjetas.filter(function (x) { return x.art.contains(pl); })[0];
+      if (Tp) { Tp.verPese = !Tp.verPese; aplicarFiltro(Tp); }
+      return;
+    }
+    if (bar && t.closest(".izl-quitar")) {
+      ev.preventDefault(); ev.stopPropagation();
+      lsSet(LS_FILTROS, null);
+      L.tarjetas.forEach(aplicarFiltro);
+      pintarBarra();
+      return;
+    }
     if (izl) {
       var T = L.tarjetas.filter(function (x) { return x.art.contains(izl); })[0];
       if (T) { T.abierta = !T.abierta; pintarTarjeta(T); }
@@ -1946,6 +2037,12 @@
     "#izl-bar input[type=checkbox]{accent-color:#fde047 !important;width:15px !important;height:15px !important;margin:0 !important;position:static !important;opacity:1 !important;appearance:auto !important;}",
     "#izl-bar select{font-size:13px !important;padding:2px 4px !important;border-radius:4px !important;border:none !important;background:#fff !important;color:#141414 !important;height:auto !important;width:auto !important;}",
     "#izl-bar .t{font-weight:700 !important;font-size:15px !important;}",
+    "#izl-bar .izl-quitar{color:#fde047 !important;text-decoration:underline !important;margin-left:4px !important;}",
+    "article.izl-oculta > *:not(.izl-plegada){display:none !important;}",
+    "article.izl-oculta{min-height:0 !important;height:auto !important;padding:0 !important;opacity:.85 !important;}",
+    ".izl-plegada{font-family:inherit !important;font-size:13px !important;color:#4b5563 !important;padding:8px 14px !important;background:#f9fafb !important;border-left:4px solid #d1d5db !important;white-space:nowrap !important;overflow:hidden !important;text-overflow:ellipsis !important;}",
+    ".izl-plegada .izl-titulo{color:#6b7280 !important;}",
+    ".izl-plegada .izl-ver{color:#145bc7 !important;font-weight:600 !important;margin-left:6px !important;}",
     ".izl-desel{background:transparent !important;color:inherit !important;font-weight:inherit !important;}",
     ".izl-orden.selected{font-weight:700 !important;}",
     "#izl-bar .s{flex:1 !important;font-size:13px !important;opacity:.9 !important;}",
@@ -2053,6 +2150,9 @@
       box.addEventListener("keydown", onKey);
     }
     var ub = ubicacion();
+    // el listado usará estas coordenadas exactas para esta tarjeta
+    cacheSet("tarj:" + m[2], { lat: coords.lat, lng: coords.lng, prec: "portal",
+      muni: ub.items.length > 1 ? ub.items[ub.items.length - 2] : "", provincia: ub.provincia }, 365);
     S = { coords: coords, ub: ub, anuncio: datosAnuncio(), err: {},
           zona: zonaPropia(coords.lat, coords.lng), inund: null, renta: null, servicios: null, coche: null, precio: null };
     log("v" + VERSION + " en " + coords.lat + "," + coords.lng + " · " + ub.items.join(" | "));
