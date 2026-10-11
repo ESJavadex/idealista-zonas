@@ -31,6 +31,7 @@
   var mapaBotones = new Map();    // google.maps.Map -> botón
   var mapaUrlDibujada = new Map(); // google.maps.Map -> última URL dibujada
   var mapasCapturados = new Set(); // Map instances ya enganchados al 'idle'
+  var factorRelleno = 1;          // capas.js lo baja si hay otras capas encima
 
   function encendido() {
     var v = null;
@@ -145,7 +146,7 @@
               strokeOpacity: 1,
               strokeWeight: 2,
               fillColor: color,
-              fillOpacity: 0.42,
+              fillOpacity: 0.42 * factorRelleno,
               clickable: false,
               zIndex: 999
             });
@@ -157,12 +158,13 @@
               strokeOpacity: 1,
               strokeWeight: 2,
               fillColor: color,
-              fillOpacity: 0.38,
+              fillOpacity: 0.38 * factorRelleno,
               clickable: false,
               zIndex: 998
             });
           }
           if (overlay) {
+            overlay.__izRelleno = zona.tipo === "poligono" ? 0.42 : 0.38;
             overlay.setMap(on ? map : null);
             overlay.__izVisible = on;
             overlays.push(overlay);
@@ -253,6 +255,8 @@
       } catch (e) { document.body && document.body.appendChild(caja); }
       btn.__izCaja = caja;
     }
+    // capas.js trae su propio panel "Capas" que integra este control
+    if (btn.__izCaja) btn.__izCaja.style.display = window.__izCapas ? "none" : "";
     var demo = demoActivo();
     var origen = (ORIGENES.find(function (o) { return o[0] === origenSel(); }) || ["ext", "Extranjeros"])[1];
     btn.textContent = !on ? "✖ Zonas OFF"
@@ -346,6 +350,44 @@
   }
 
   window.__izMapas = window.__izMapas || [];
+
+  // capas.js también encuentra mapas (vía prototipo) y nos los pasa aquí
+  window.__izCapturar = function (m) {
+    if (window.__izMapas.indexOf(m) === -1) window.__izMapas.push(m);
+    capturar(m);
+  };
+
+  // API para capas.js (panel unificado de capas): mismo estado que el botón
+  window.__izZonas = {
+    encendido: encendido,
+    setOn: function (on) {
+      guardar(on);
+      window.__izMapas.forEach(function (m) {
+        (mapaOverlays.get(m) || []).forEach(function (o) {
+          o.__izVisible = on; o.setMap(on ? m : null);
+        });
+        try { actualizarBoton(m, on); } catch (e) {}
+      });
+    },
+    demoActivo: demoActivo,
+    setDemo: function (on) { guardarDemo(on); repintarTodo(); },
+    origen: origenSel,
+    setOrigen: function (o) { guardarOrigen(o); repintarTodo(); },
+    ORIGENES: ORIGENES,
+    hayDemo: hayDemo,
+    resumen: resumen,
+    colores: COLORES,
+    // atenúa el relleno (los bordes se quedan) para ver capas de debajo
+    setRelleno: function (f) {
+      if (f === factorRelleno) return;
+      factorRelleno = f;
+      window.__izMapas.forEach(function (m) {
+        (mapaOverlays.get(m) || []).forEach(function (o) {
+          try { o.setOptions({ fillOpacity: (o.__izRelleno || 0.4) * f }); } catch (e) {}
+        });
+      });
+    }
+  };
 
   // Capturamos el momento en que la página define window.google (ocurre ANTES
   // de que idealista cree el mapa, así que la trampa siempre gana la carrera)

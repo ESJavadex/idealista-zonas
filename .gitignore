@@ -5,3 +5,7 @@ zonas.js
 herramientas/config.local.json
 data-src/
 docs/preview.png
+
+# Datos de servicios generados (herramientas/generar_servicios.py) y página de pruebas local
+servicios/
+_test/

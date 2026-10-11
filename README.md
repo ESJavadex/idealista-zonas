@@ -232,3 +232,47 @@ Notas:
 - Los impuestos se calculan sobre el precio de escritura; si el valor catastral
   o el valor de referencia superan el precio, Hacienda usa el mayor.
 - Notaría y registro son estimaciones (varían con el precio y el número de páginas).
+
+## 🧭 ¿Comprar aquí? (v2.0.0)
+
+En cada ficha (obra nueva y segunda mano) aparece una sección nueva bajo la
+tabla de viviendas con una **nota de 0 a 10**, un resumen (a favor / a vigilar)
+y 8 bloques que se despliegan al pulsarlos:
+
+| Bloque | Fuente |
+|---|---|
+| Tu zona | tu `zonas.js` (verde/naranja/rojo) |
+| Inundación | huella real de la **DANA del 29-oct-2024**, municipios del Decreto 163/2024 y **PATRICOVA** (Institut Cartogràfic Valencià; solo Comunitat Valenciana) |
+| Renta del barrio | INE, Atlas de Distribución de Renta 2023 por **sección censal**: renta por persona y hogar, percentil en la provincia y el municipio, % menores de 18 / mayores de 65, Gini, pisos turísticos |
+| Servicios a pie | OpenStreetMap: súper (y Mercadona), farmacia, centro de salud, colegio, guardería, parque, bus, metro/tren, playa, hospital, bares |
+| En coche | OSRM (sin tráfico) a tus destinos; añade los tuyos (trabajo, familia…) y marca el principal |
+| Precio zona | informes de precios de idealista: €/m² del municipio/distrito, evolución de 12 meses y €/m² de cada vivienda frente a la zona |
+| Alquilar vs comprar | €/m² de alquiler de la zona frente a tu coste mensual (cuota + comunidad + IBI) |
+| Antes de reservar | checklist (aval de las cantidades a cuenta, licencia, nota simple…) que se guarda por vivienda |
+
+La nota pondera tu zona ×2, inundación ×2, servicios ×1,5, conexión ×1,5 y
+renta, precio y esfuerzo ×1. **Si la vivienda está dentro de la huella de la
+DANA, la nota se queda en 3,5 como mucho.**
+
+**Comparador**: botón *☆ Guardar para comparar* en la sección (o *☆ Comparar
+esta* en el panel de cada vivienda de la tabla). El botón flotante *⚖
+Comparador* abre una tabla con todas, marca en verde lo mejor de cada fila,
+permite notas y exporta a **CSV** (Excel en español), **JSON** o texto.
+
+**Servicios sin depender de Overpass**: los servidores públicos de Overpass se
+saturan a menudo. Genera una copia local de tu región (≈1 MB, 1 minuto):
+
+```bash
+pip install osmium
+python3 herramientas/generar_servicios.py            # Comunitat Valenciana
+python3 herramientas/generar_servicios.py galicia castilla-y-leon
+```
+
+Fuera de las regiones descargadas se usa Overpass en directo.
+
+## 🗺️ Capas del mapa (v2.0.0)
+
+En la vista mapa, el panel **Capas** (abajo a la izquierda) activa: tus zonas,
+la zona inundada por la DANA 2024, el riesgo PATRICOVA, la renta por sección
+censal (INE, zoom ≥ 13), los pisos turísticos (INE) y súper/estaciones (OSM,
+zoom ≥ 15). Ver `capas.js`.

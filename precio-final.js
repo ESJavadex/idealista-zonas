@@ -13,7 +13,7 @@
 (function () {
   "use strict";
 
-  var VERSION = "1.10.0"; // se canta en consola: así sabemos qué build corre de verdad
+  var VERSION = "2.0.0"; // se canta en consola: así sabemos qué build corre de verdad
 
   // ------------------------------------------------------------- ajustes
   var LS_CFG = "iz_pf_cfg";   // valores guardados
@@ -98,7 +98,7 @@
   // incrustan la tabla "pisos disponibles en venta" (con all_frames:true el
   // script corre dentro de ellos), y documentos de idealista sin la URL típica
   function esDetalle() {
-    if (!/idealista\./.test(location.href)) return false; // solo idealista
+    if (!/idealista\./.test(location.href) && !window.__IZ_TEST) return false; // solo idealista (o pruebas)
     if (/idealista\.[a-z.]+\/(obra-nueva|inmueble)\//.test(location.href)) return true;
     try {
       var cuerpo = document.body && document.body.textContent || "";
@@ -138,7 +138,7 @@
 
   // ---------------------------------------------------------------- utils
   function fmt(n) {
-    try { return Math.round(n).toLocaleString("es-ES") + " €"; }
+    try { return Math.round(n).toLocaleString("es-ES", { useGrouping: "always" }) + " €"; }
     catch (e) { return Math.round(n) + " €"; }
   }
   function pct(n) { return String(n).replace(".", ",") + " %"; }
@@ -197,92 +197,90 @@
   // ------------------------------------------------------------ estilos
   // CSS blindado con !important: el de idealista pisa todo lo que no se proteja
   var CSS =
-    // badge junto al precio
-    // línea "final ≈ X €" bajo el precio — SIEMPRE visible, texto natural de
-    // la página, ocupa el ancho del bloque y deja partir la línea si hace falta
+    // línea "precio final X €" bajo el precio: texto natural de la página
     ".izpf-badge{display:block !important;margin:2px 0 0 0 !important;padding:0 !important;" +
     "background:none !important;border:none !important;border-radius:0 !important;" +
-    "font:400 12.5px/1.45 system-ui,sans-serif !important;" +
-    "color:#64748b !important;cursor:pointer !important;user-select:none !important;" +
+    "font:400 13px/1.45 inherit !important;font-family:inherit !important;" +
+    "color:#6b7280 !important;cursor:pointer !important;user-select:none !important;" +
     "width:auto !important;max-width:100% !important;height:auto !important;" +
     "text-transform:none !important;letter-spacing:normal !important;box-shadow:none !important;" +
     "text-align:left !important;white-space:normal !important;}" +
-    ".izpf-badge b{color:#b45309 !important;font-weight:600 !important;}" +
-    ".izpf-badge:hover{color:#334155 !important;background:none !important;}" +
-    // panel contenedor
-    ".izpf-panel{background:#fff !important;border:1px solid #e2e8f0 !important;border-radius:10px !important;" +
-    "box-shadow:0 4px 16px rgba(0,0,0,.18) !important;padding:10px 14px !important;margin:6px 0 0 0 !important;" +
-    "z-index:99999 !important;font:13px/1.45 system-ui,sans-serif !important;color:#0f172a !important;" +
-    "width:640px !important;max-width:calc(100vw - 32px) !important;text-align:left !important;" +
-    "overflow-x:auto !important;" + // sin tope de alto: TODO el desglose se ve
-    "box-sizing:border-box !important;clear:both !important;position:relative !important;" +
-    "box-shadow:0 2px 10px rgba(0,0,0,.10) !important;border-radius:12px !important;}" +
-    // rejilla a 2 columnas: desglose | simulación (mucho menos alto)
-    ".izpf-panel .izpf-grid{display:grid !important;grid-template-columns:1fr 1fr !important;" +
-    "column-gap:18px !important;row-gap:0 !important;}" +
+    ".izpf-badge b{color:#b45309 !important;font-weight:700 !important;}" +
+    ".izpf-badge:hover{color:#141414 !important;background:none !important;}" +
+    // panel
+    ".izpf-panel{background:#fff !important;border:1px solid #e5e6e1 !important;border-radius:6px !important;" +
+    "box-shadow:0 2px 10px rgba(0,0,0,.08) !important;padding:0 !important;margin:8px 0 0 0 !important;" +
+    "font-size:14px !important;line-height:1.45 !important;color:#141414 !important;" +
+    "width:680px !important;max-width:calc(100vw - 32px) !important;text-align:left !important;" +
+    "box-sizing:border-box !important;clear:both !important;position:relative !important;overflow:hidden !important;}" +
+    ".izpf-panel *{box-sizing:border-box !important;font-family:inherit !important;}" +
+    ".izpf-panel .izpf-hd{display:flex !important;align-items:center !important;gap:8px !important;" +
+    "background:#6f6f6d !important;color:#fff !important;padding:6px 12px 6px 16px !important;}" +
+    ".izpf-panel .izpf-hd .t{flex:1 !important;font-weight:700 !important;font-size:15px !important;}" +
+    ".izpf-panel .izpf-hd .t small{font-weight:400 !important;opacity:.85 !important;font-size:12px !important;margin-left:6px !important;}" +
+    ".izpf-panel .izpf-hb{all:unset;cursor:pointer !important;font-size:12.5px !important;font-weight:600 !important;" +
+    "padding:3px 9px !important;border-radius:4px !important;background:rgba(255,255,255,.15) !important;color:#fff !important;white-space:nowrap !important;}" +
+    ".izpf-panel .izpf-hb:hover{background:rgba(255,255,255,.3) !important;}" +
+    ".izpf-panel .izpf-hb.on{background:#fde047 !important;color:#422006 !important;}" +
+    // cifras clave
+    ".izpf-panel .izpf-kpis{display:grid !important;grid-template-columns:repeat(4,1fr) !important;gap:8px !important;padding:12px 16px 4px !important;}" +
+    ".izpf-panel .izpf-kpi{border:1px solid #eeefeb !important;border-left:4px solid #b45309 !important;border-radius:4px !important;padding:7px 10px !important;background:#fff !important;}" +
+    ".izpf-panel .izpf-kpi .k{font-size:11.5px !important;color:#6b7280 !important;font-weight:600 !important;text-transform:uppercase !important;letter-spacing:.02em !important;}" +
+    ".izpf-panel .izpf-kpi .v{font-size:19px !important;font-weight:800 !important;line-height:1.2 !important;margin-top:2px !important;white-space:nowrap !important;}" +
+    ".izpf-panel .izpf-kpi .s{font-size:12px !important;color:#6b7280 !important;line-height:1.3 !important;}" +
+    "@media (max-width:720px){.izpf-panel .izpf-kpis{grid-template-columns:repeat(2,1fr) !important;}}" +
+    // cuerpo a 2 columnas
+    ".izpf-panel .izpf-grid{display:grid !important;grid-template-columns:1fr 1fr !important;column-gap:22px !important;padding:6px 16px 4px !important;}" +
     ".izpf-panel .izpf-col{min-width:0 !important;}" +
     "@media (max-width:720px){.izpf-panel .izpf-grid{grid-template-columns:1fr !important;}}" +
-    ".izpf-panel *{box-sizing:border-box !important;font-family:system-ui,sans-serif !important;}" +
-    // textos y tablas del panel
-    ".izpf-panel h4{margin:0 0 8px !important;font-size:13px !important;color:#334155 !important;" +
-    "font-weight:700 !important;text-transform:none !important;letter-spacing:normal !important;" +
-    "padding:0 0 6px 0 !important;border-bottom:1px solid #e2e8f0 !important;}" +
-    ".izpf-panel table{width:100% !important;border-collapse:collapse !important;margin:0 !important;" +
-    "background:none !important;border:none !important;}" +
-    ".izpf-panel td{padding:2px 0 !important;vertical-align:top !important;border:none !important;" +
-    "background:none !important;color:inherit !important;font-size:13px !important;font-weight:400 !important;}" +
-    ".izpf-panel td.d{color:#475569 !important;}" +
-    ".izpf-panel td.e{text-align:right !important;font-variant-numeric:tabular-nums !important;" +
-    "font-weight:600 !important;white-space:nowrap !important;color:#0f172a !important;}" +
-    ".izpf-panel tr.tot td{border-top:1px solid #cbd5e1 !important;padding-top:5px !important;font-weight:700 !important;}" +
+    ".izpf-panel h5{margin:12px 0 6px !important;padding:0 0 4px !important;font-size:12px !important;font-weight:700 !important;" +
+    "color:#6b7280 !important;text-transform:uppercase !important;letter-spacing:.03em !important;border-bottom:1px solid #eeefeb !important;}" +
+    ".izpf-panel table{width:100% !important;border-collapse:collapse !important;margin:0 !important;background:none !important;border:none !important;}" +
+    ".izpf-panel td{padding:3px 0 !important;vertical-align:top !important;border:none !important;background:none !important;" +
+    "color:inherit !important;font-size:14px !important;font-weight:400 !important;}" +
+    ".izpf-panel td.d{color:#4b5563 !important;}" +
+    ".izpf-panel td.e{text-align:right !important;font-variant-numeric:tabular-nums !important;font-weight:600 !important;white-space:nowrap !important;color:#141414 !important;padding-left:8px !important;}" +
+    ".izpf-panel tr.tot td{border-top:1px solid #d1d5db !important;padding-top:6px !important;font-weight:700 !important;}" +
     ".izpf-panel tr.tot td.e{color:#b45309 !important;}" +
-    ".izpf-panel .izpf-nota{margin-top:6px !important;font-size:11px !important;color:#64748b !important;}" +
-    // destacado amarillo del líquido necesario
-    ".izpf-panel .izpf-destacado{margin:8px 0 0 0 !important;background:#fefce8 !important;" +
-    "border:1px solid #fde047 !important;border-radius:8px !important;padding:6px 10px !important;}" +
-    ".izpf-panel .izpf-destacado b.big{font-size:17px !important;color:#854d0e !important;}" +
-    ".izpf-panel .izpf-destacado .sub{font-size:11px !important;color:#a16207 !important;font-weight:400 !important;}" +
-    // secciones
-    ".izpf-panel .izpf-secc{margin:8px 0 0 0 !important;border-top:1px dashed #cbd5e1 !important;padding-top:6px !important;}" +
-    ".izpf-panel .izpf-secc>b{font-size:12px !important;color:#334155 !important;" +
-    "font-weight:700 !important;text-transform:none !important;letter-spacing:normal !important;}" +
-    // inputs y labels — el CSS de idealista los pinta enormes sin esto
-    ".izpf-panel input[type=number],.izpf-panel input[type=text]{width:56px !important;max-width:56px !important;" +
-    "height:auto !important;padding:2px 4px !important;margin:0 !important;border:1px solid #cbd5e1 !important;" +
-    "border-radius:5px !important;font:12px system-ui,sans-serif !important;background:#fff !important;" +
-    "color:#0f172a !important;box-shadow:none !important;box-sizing:border-box !important;" +
-    "display:inline-block !important;line-height:1.3 !important;float:none !important;}" +
-    ".izpf-panel input[type=checkbox]{width:auto !important;height:auto !important;margin:0 3px 0 0 !important;" +
-    "accent-color:#b45309 !important;cursor:pointer !important;display:inline-block !important;float:none !important;" +
-    "position:static !important;opacity:1 !important;appearance:auto !important;}" +
-    ".izpf-panel select{width:auto !important;max-width:200px !important;height:auto !important;padding:2px 4px !important;" +
-    "font:12px system-ui,sans-serif !important;border:1px solid #cbd5e1 !important;border-radius:5px !important;" +
-    "background:#fff !important;color:#0f172a !important;display:inline-block !important;float:none !important;}" +
-    ".izpf-panel label{font-size:12px !important;color:#475569 !important;font-weight:400 !important;" +
-    "text-transform:none !important;letter-spacing:normal !important;display:inline !important;" +
-    "margin:0 !important;padding:0 !important;background:none !important;border:none !important;" +
-    "cursor:default !important;float:none !important;line-height:1.4 !important;}" +
-    ".izpf-panel .izpf-fila{display:flex !important;align-items:center !important;gap:6px !important;" +
-    "margin:3px 0 !important;flex-wrap:wrap !important;}" +
-    // chips de escenarios
-    ".izpf-panel .izpf-chips{display:flex !important;flex-wrap:wrap !important;gap:4px !important;margin-top:4px !important;}" +
-    ".izpf-panel .izpf-chip{background:#f1f5f9 !important;border:1px solid #cbd5e1 !important;" +
-    "border-radius:12px !important;padding:2px 8px !important;font:600 11px system-ui,sans-serif !important;" +
-    "color:#334155 !important;cursor:pointer !important;text-transform:none !important;letter-spacing:normal !important;" +
-    "height:auto !important;width:auto !important;box-shadow:none !important;}" +
-    ".izpf-panel .izpf-chip:hover{background:#e0f2fe !important;border-color:#7dd3fc !important;}" +
-    ".izpf-panel .izpf-chip.sel{background:#dbeafe !important;border-color:#3b82f6 !important;color:#1d4ed8 !important;}" +
-    // botones internos
-    ".izpf-panel .izpf-btn{margin:8px 0 0 0 !important;font:600 12px system-ui,sans-serif !important;" +
-    "color:#1d4ed8 !important;background:none !important;border:none !important;cursor:pointer !important;" +
-    "padding:0 !important;text-transform:none !important;letter-spacing:normal !important;}" +
-    ".izpf-panel .izpf-ajustes{display:none !important;margin-top:6px !important;}" +
-    ".izpf-panel .izpf-ajustes.open{display:block !important;}" +
-    ".izpf-panel .izpf-x{float:right !important;background:none !important;border:none !important;" +
-    "cursor:pointer !important;color:#94a3b8 !important;font:14px system-ui,sans-serif !important;" +
-    "padding:0 !important;margin:0 !important;width:auto !important;height:auto !important;" +
-    "text-transform:none !important;}" +
-    ".izpf-panel .izpf-x:hover{color:#334155 !important;}" +
+    ".izpf-panel .izpf-nota{margin-top:6px !important;font-size:12px !important;color:#6b7280 !important;}" +
+    // calendario de pagos
+    ".izpf-panel .izpf-tl{list-style:none !important;margin:0 !important;padding:0 0 0 14px !important;border-left:2px solid #e5e7eb !important;}" +
+    ".izpf-panel .izpf-tl li{position:relative !important;margin:0 0 8px !important;padding:0 !important;list-style:none !important;font-size:14px !important;}" +
+    ".izpf-panel .izpf-tl li::before{content:'' !important;position:absolute !important;left:-20px !important;top:5px !important;width:10px !important;height:10px !important;border-radius:50% !important;background:#b45309 !important;box-shadow:0 0 0 2px #fff !important;}" +
+    ".izpf-panel .izpf-tl .cu{display:flex !important;justify-content:space-between !important;gap:8px !important;}" +
+    ".izpf-panel .izpf-tl .cu b{white-space:nowrap !important;}" +
+    ".izpf-panel .izpf-tl small{display:block !important;color:#6b7280 !important;font-size:12px !important;}" +
+    // formulario hipoteca
+    ".izpf-panel .izpf-form{display:grid !important;grid-template-columns:1fr 1fr !important;gap:6px 10px !important;margin:2px 0 8px !important;}" +
+    ".izpf-panel .izpf-form label{display:block !important;font-size:12px !important;color:#6b7280 !important;font-weight:600 !important;margin:0 !important;padding:0 !important;" +
+    "text-transform:none !important;letter-spacing:normal !important;background:none !important;border:none !important;float:none !important;line-height:1.4 !important;cursor:default !important;}" +
+    ".izpf-panel .izpf-campo{display:flex !important;align-items:center !important;border:1px solid #d1d5db !important;border-radius:4px !important;background:#fff !important;overflow:hidden !important;}" +
+    ".izpf-panel .izpf-campo:focus-within{border-color:#145bc7 !important;box-shadow:0 0 0 2px rgba(20,91,199,.15) !important;}" +
+    ".izpf-panel .izpf-campo input{all:unset;flex:1 !important;min-width:0 !important;width:100% !important;padding:5px 8px !important;font-size:14px !important;font-weight:600 !important;color:#141414 !important;}" +
+    ".izpf-panel .izpf-campo span{padding:0 8px !important;font-size:12px !important;color:#6b7280 !important;background:#f9fafb !important;align-self:stretch !important;display:flex !important;align-items:center !important;border-left:1px solid #e5e7eb !important;}" +
+    // ajustes
+    ".izpf-panel input[type=number],.izpf-panel input[type=text]{height:auto !important;margin:0 !important;box-shadow:none !important;float:none !important;}" +
+    ".izpf-panel .izpf-ajustes input[type=number]{width:80px !important;padding:3px 6px !important;border:1px solid #d1d5db !important;border-radius:4px !important;font-size:13px !important;background:#fff !important;color:#141414 !important;display:inline-block !important;}" +
+    ".izpf-panel input[type=checkbox]{width:auto !important;height:auto !important;margin:0 4px 0 0 !important;accent-color:#b45309 !important;cursor:pointer !important;" +
+    "display:inline-block !important;float:none !important;position:static !important;opacity:1 !important;appearance:auto !important;}" +
+    ".izpf-panel select{width:auto !important;max-width:240px !important;height:auto !important;padding:3px 6px !important;font-size:13px !important;" +
+    "border:1px solid #d1d5db !important;border-radius:4px !important;background:#fff !important;color:#141414 !important;display:inline-block !important;float:none !important;}" +
+    ".izpf-panel .izpf-ajustes{display:none !important;padding:4px 16px 10px !important;}" +
+    ".izpf-panel .izpf-ajustes.open{display:grid !important;grid-template-columns:repeat(auto-fill,minmax(200px,1fr)) !important;gap:6px 14px !important;}" +
+    ".izpf-panel .izpf-ajustes .izpf-fila{display:flex !important;align-items:center !important;justify-content:space-between !important;gap:6px !important;font-size:13px !important;color:#4b5563 !important;}" +
+    ".izpf-panel .izpf-ajustes .izpf-nota{grid-column:1/-1 !important;}" +
+    // escenarios
+    ".izpf-panel .izpf-chips{display:flex !important;flex-wrap:wrap !important;gap:5px !important;margin:2px 0 4px !important;}" +
+    ".izpf-panel .izpf-chip{background:#f3f4f6 !important;border:1px solid #e5e7eb !important;border-radius:14px !important;padding:3px 10px !important;" +
+    "font-size:12.5px !important;font-weight:600 !important;color:#374151 !important;cursor:pointer !important;text-transform:none !important;white-space:nowrap !important;}" +
+    ".izpf-panel .izpf-chip:hover{background:#eff6ff !important;border-color:#93c5fd !important;}" +
+    ".izpf-panel .izpf-chip.sel{background:#145bc7 !important;border-color:#145bc7 !important;color:#fff !important;}" +
+    ".izpf-panel .izpf-alq{margin:8px 0 0 !important;padding:8px 10px !important;background:#f0f9ff !important;border:1px solid #bae6fd !important;border-radius:4px !important;font-size:13px !important;}" +
+    ".izpf-panel .izpf-pie{display:flex !important;justify-content:space-between !important;align-items:center !important;padding:8px 16px 12px !important;border-top:1px solid #f1f1ee !important;margin-top:8px !important;}" +
+    ".izpf-panel .izpf-btn{all:unset;cursor:pointer !important;font-size:13px !important;font-weight:600 !important;color:#145bc7 !important;}" +
+    ".izpf-panel .izpf-btn:hover{text-decoration:underline !important;}" +
+    ".izpf-panel .izpf-x{all:unset;cursor:pointer !important;color:#fff !important;font-size:15px !important;padding:0 4px !important;opacity:.8 !important;}" +
+    ".izpf-panel .izpf-x:hover{opacity:1 !important;}" +
     // tabla de unidades: columnas extra a la derecha con scroll horizontal
     ".izpf-scroll{overflow-x:auto !important;}" +
     ".izpf-scroll>.table{width:auto !important;min-width:100% !important;}" +
@@ -291,7 +289,7 @@
     ".izpf-scroll .izpf-badge{white-space:nowrap !important;}" +
     ".izpf-cell{white-space:nowrap !important;cursor:pointer !important;color:#141414 !important;}" +
     ".izpf-cell .v{font-weight:600 !important;color:#b45309 !important;}" +
-    ".izpf-cell .l{display:block !important;font:400 12.5px/1.45 system-ui,sans-serif !important;color:#64748b !important;}" +
+    ".izpf-cell .l{display:block !important;font-size:12.5px !important;font-weight:400 !important;line-height:1.45 !important;color:#6b7280 !important;}" +
     ".izpf-cell:hover .l{color:#334155 !important;}" +
     ".table__row.izpf-head>.table__cell{font:600 12px/1.3 system-ui,sans-serif !important;color:#64748b !important;" +
     "white-space:nowrap !important;padding-top:10px !important;padding-bottom:6px !important;" +
@@ -340,18 +338,44 @@
   }
 
   // -------------------------------------------------------------- panel
-  function crearPanel(precio, obraNueva, c, titulo) {
+  function crearPanel(precio, obraNueva, c, titulo, m2) {
     var panel = document.createElement("div");
     panel.className = "izpf-panel";
     var r = calcular(precio, c, obraNueva);
+    panel.__izpfArgs = { precio: precio, obra: obraNueva, titulo: titulo, m2: m2 };
 
     function fila(d, e) { return "<tr><td class='d'>" + d + "</td><td class='e'>" + e + "</td></tr>"; }
+    function kpi(k, v, s, color) {
+      return "<div class='izpf-kpi' style='border-left-color:" + (color || "#b45309") + " !important'><div class='k'>" + k +
+        "</div><div class='v'" + (color ? " style='color:" + color + " !important'" : "") + ">" + v + "</div><div class='s'>" + s + "</div></div>";
+    }
+    function campo(k, val, suf, extra) {
+      return "<div><label>" + extra + "</label><div class='izpf-campo'><input class='izpf-in' data-k='" + k +
+        "' type='number' value='" + val + "'" + (k === "interes" ? " step='0.1'" : k === "neto" ? " step='100'" : "") +
+        "><span>" + suf + "</span></div></div>";
+    }
+    var e = r.endeudamiento;
+    var colE = e == null ? "#6b7280" : e <= 30 ? "#15803d" : e <= 35 ? "#b45309" : "#dc2626";
+    var guardada = window.__izCmp && titulo;
 
-    // ---- desglose del precio
-    var html = "<h4>💶 " + (titulo ? titulo + " — " : "") + "Precio final (" + (obraNueva ? "obra nueva" : "segunda mano") +
-      " · " + c.ccaa + ")" +
-      "<button class='izpf-x' title='ocultar (vuelve con un click en precio final)'>✕</button></h4>" +
-      "<div class='izpf-grid'><div class='izpf-col'><table>";
+    // ---- cabecera
+    var html = "<div class='izpf-hd'><span class='t'>" + (titulo ? titulo : "Precio final") +
+      "<small>" + (obraNueva ? "obra nueva" : "segunda mano") + " · " + c.ccaa + "</small></span>" +
+      (guardada ? "<button class='izpf-hb izpf-cmp'>☆ Comparar esta</button>" : "") +
+      "<button class='izpf-x' title='ocultar'>✕</button></div>";
+
+    // ---- cifras clave
+    html += "<div class='izpf-kpis'>" +
+      kpi("Precio final", fmt(r.final), "+" + (100 * (r.final / precio - 1)).toFixed(1).replace(".", ",") + " % sobre " + fmt(precio)) +
+      kpi("Cash necesario", fmt(r.liquido), "el día de la firma: " + fmt(r.escritura)) +
+      kpi("Cuota", fmt(r.cuota) + "/mes", "coste real " + fmt(r.costeMensualReal) + "/mes", "#145bc7") +
+      kpi("Esfuerzo", e != null ? e.toFixed(1).replace(".", ",") + " %" : "—",
+        (e == null ? "" : e <= 30 ? "✔ cómodo" : e <= 35 ? "⚠ justo" : "✖ demasiado") + " · neto " + fmt(c.neto), colE) +
+      "</div>";
+
+    html += "<div class='izpf-grid'><div class='izpf-col'>";
+    // ---- desglose
+    html += "<h5>Desglose del precio</h5><table>";
     html += fila("Precio de venta", fmt(precio));
     if (obraNueva) {
       html += fila("IVA vivienda (" + pct(c.iva) + ")", fmt(precio * c.iva / 100));
@@ -363,79 +387,58 @@
     html += fila("Registro (est.)", fmt(c.registro));
     if (c.gestoriaOn) html += fila("Gestoría", fmt(c.gestoria));
     if (c.tasacionOn) html += fila("Tasación", fmt(c.tasacion));
-    html += "<tr class='tot'><td>PRECIO FINAL</td><td class='e'>" + fmt(r.final) + "</td></tr>";
-    html += "<tr><td class='d'>Equivale a un</td><td class='e'>+" +
-      (100 * (r.final / precio - 1)).toFixed(1).replace(".", ",") + "%</td></tr>";
-    html += "</table>";
+    html += "<tr class='tot'><td>Precio final</td><td class='e'>" + fmt(r.final) + "</td></tr></table>";
 
-    // ---- líquido necesario (lo que de verdad hay que tener ahorrado)
-    html += "<div class='izpf-destacado'>💰 Necesitas <b class='big'>" + fmt(r.liquido) +
-      " líquidos</b> hasta la escritura" +
-      "<div class='sub'>entrada " + pct(c.entrada) + " (" + fmt(r.entrada) + ") + impuestos " +
-      fmt(r.impuestos) + " + gastos " + fmt(r.gastos) + "</div>" +
-      "<div class='sub'>En el día de firma solo hacen falta " + fmt(r.escritura) +
-      " (la reserva y las arras se van pagando antes).</div></div>";
-
-    // cierra la col A (desglose + líquido) y abre la col B (cronograma + simulación)
+    // ---- calendario de pagos
+    html += "<h5>Cuándo pagas cada cosa</h5><ul class='izpf-tl'>";
+    if (r.reserva > 0) html += "<li><div class='cu'><span>Reserva</span><b>" + fmt(r.reserva) + "</b></div><small>hoy, para bloquearla</small></li>";
+    if (r.arras > 0) html += "<li><div class='cu'><span>Arras (" + pct(c.arras) + ")</span><b>" + fmt(r.arras) + "</b></div><small>" +
+      (obraNueva ? "al firmar el contrato privado (1–3 meses)" : "al pactar la compra") + "</small></li>";
+    html += "<li><div class='cu'><span>Escritura</span><b>" + fmt(r.escritura) + "</b></div><small>resto de entrada " + fmt(r.restoEntrada) +
+      " + " + (obraNueva ? "IVA y AJD " : "ITP ") + fmt(r.impuestos) + " + gastos " + fmt(r.gastos) + "</small></li>";
+    html += "</ul>";
+    if (obraNueva) html += "<div class='izpf-nota'>La reserva y las arras van a cuenta del precio. Exige que estén avaladas.</div>";
     html += "</div><div class='izpf-col'>";
 
-    // ---- cronograma: cuándo pagas cada cosa
-    html += "<div class='izpf-secc'><b>📅 Cuándo pagas cada cosa</b><table>";
-    if (r.reserva > 0) html += fila("Reserva (hoy, para bloquearlo)", fmt(r.reserva));
-    if (r.arras > 0) html += fila((obraNueva ? "Arras (firma contrato, 1–3 meses)" : "Arras de señas (al pactar)") +
-      " (" + pct(c.arras) + ")", fmt(r.arras));
-    if (r.restoEntrada > 0) html += fila("Resto de entrada (en la escritura)", fmt(r.restoEntrada));
-    html += fila(obraNueva ? "IVA + AJD (escritura)" : "ITP (escritura)", fmt(r.impuestos));
-    html += fila("Notaría + registro + gastos (escritura)", fmt(r.gastos));
-    html += "<tr class='tot'><td>LÍQUIDO TOTAL</td><td class='e'>" + fmt(r.liquido) + "</td></tr>";
-    html += "</table>";
-    if (obraNueva) {
-      html += "<div class='izpf-nota'>📌 La reserva y las arras son <b>a cuenta del precio</b> " +
-        "(no suman coste). Si al final no compras, las arras se pierden si te echas atrás tú.</div>";
-    }
-    html += "</div>";
-
-    // ---- simulación de hipoteca
-    html += "<div class='izpf-secc izpf-sim'><b>🏦 Simulación hipoteca</b>" +
-      "<div class='izpf-fila'><label>Entrada:</label>" +
-      "<input class='izpf-in' data-k='entrada' type='number' min='0' max='100' step='5' value='" + c.entrada + "'>%" +
-      "<span class='izpf-ent' style='color:#64748b'>(" + fmt(r.entrada) + ")</span></div>" +
-      "<div class='izpf-fila'><label>Hipoteca (80%):</label><span class='izpf-hip'><b>" + fmt(r.prestamo) + "</b></span></div>" +
-      "<div class='izpf-fila'><label>Plazo:</label>" +
-      "<input class='izpf-in' data-k='plazo' type='number' min='1' max='50' value='" + c.plazo + "'>años" +
-      "<label style='margin-left:10px'>Interés:</label>" +
-      "<input class='izpf-in' data-k='interes' type='number' min='0' max='25' step='0.1' value='" + c.interes + "'>%</div>" +
-      "<table style='margin-top:4px'>" +
+    // ---- hipoteca
+    html += "<h5>Hipoteca</h5><div class='izpf-form'>" +
+      campo("entrada", c.entrada, "%", "Entrada (" + fmt(r.entrada) + ")") +
+      campo("plazo", c.plazo, "años", "Plazo") +
+      campo("interes", c.interes, "% TIN", "Interés") +
+      campo("neto", c.neto, "€/mes", "Neto del hogar") + "</div><table>" +
+      fila("Préstamo (" + (100 - c.entrada) + " %)", fmt(r.prestamo)) +
       fila("Cuota mensual", "<b>" + fmt(r.cuota) + "</b>") +
       fila("Intereses totales (" + r.meses + " cuotas)", fmt(r.intereses)) +
-      fila("Coste mensual real (+comunidad " + fmt(c.comunidad) + " + IBI " + fmt(c.ibi) + ")", "<b>" + fmt(r.costeMensualReal) + "</b>") +
-      "<tr><td class='d'>Neto del hogar:</td><td class='e'><input class='izpf-in' data-k='neto' type='number' step='100' value='" + c.neto + "' style='width:70px !important;'> €/mes</td></tr>" +
-      "<tr><td class='d'>% de endeudamiento:</td><td class='e izpf-endeud'>" +
-      (r.endeudamiento != null
-        ? "<b style='color:" + (r.endeudamiento <= 30 ? "#16a34a" : r.endeudamiento <= 35 ? "#b45309" : "#dc2626") +
-          " !important'>" + r.endeudamiento.toFixed(1).replace(".", ",") + " %</b> " +
-          (r.endeudamiento <= 30 ? "✔ bien" : r.endeudamiento <= 35 ? "⚠ justo" : "✖ demasiado")
-        : "—") + "</td></tr>" +
-      "<tr class='tot'><td>TODO pagado al final</td><td class='e'>" + fmt(r.totalConHipoteca) + "</td></tr>" +
-      fila("Neto hogar necesario (cuota ≤ " + pct(c.regla) + ")", "<b>" + fmt(r.ingresoMinMes) + "/mes</b>") +
-      "</table></div></div>"; // cierra col B y la rejilla
+      fila("+ comunidad " + fmt(c.comunidad) + " e IBI " + fmt(c.ibi) + "/año", fmt(r.costeMensualReal) + "/mes") +
+      fila("Neto necesario (cuota ≤ " + pct(c.regla) + ")", fmt(r.ingresoMinMes) + "/mes") +
+      "<tr class='tot'><td>Todo pagado al final</td><td class='e'>" + fmt(r.totalConHipoteca) + "</td></tr></table>";
 
-    // ---- pie: escenarios rápidos (entrada x plazo)
-    html += "<div class='izpf-secc'><b>⚡ Escenarios (interés actual " + pct(c.interes) + ")</b><div class='izpf-chips'>";
-    var combos = [[20, 25], [20, 30], [25, 25], [25, 30], [30, 25], [30, 30]];
-    combos.forEach(function (cb) {
+    // ---- escenarios
+    html += "<h5>Escenarios (interés " + pct(c.interes) + ")</h5><div class='izpf-chips'>";
+    [[20, 25], [20, 30], [25, 25], [25, 30], [30, 25], [30, 30]].forEach(function (cb) {
       var c2 = {};
       for (var k in c) c2[k] = c[k];
       c2.entrada = cb[0]; c2.plazo = cb[1];
       var q = calcular(precio, c2, obraNueva);
-      var sel = (c.entrada === cb[0] && c.plazo === cb[1]) ? " izpf-chip sel" : "";
-      html += "<span class='izpf-chip" + sel + "' data-e='" + cb[0] + "' data-p='" + cb[1] +
-        "'>" + cb[0] + "% · " + cb[1] + "a → " + fmt(q.cuota) + "/mes</span>";
+      var sel = (c.entrada === cb[0] && c.plazo === cb[1]) ? " sel" : "";
+      html += "<span class='izpf-chip" + sel + "' data-e='" + cb[0] + "' data-p='" + cb[1] + "'>" +
+        cb[0] + "% · " + cb[1] + "a → " + fmt(q.cuota) + "</span>";
     });
-    html += "</div></div>";
+    html += "</div>";
+
+    // ---- alquilar algo igual (con el €/m² de alquiler de la zona, de barrio.js)
+    var Z = window.__izZona;
+    if (Z && Z.alquilerM2 && m2) {
+      var alq = Z.alquilerM2 * m2;
+      html += "<div class='izpf-alq'>Alquilar algo igual en " + Z.nombre + " ≈ <b>" + fmt(alq) + "/mes</b> · comprar te cuesta " +
+        "<b>" + (r.costeMensualReal >= alq ? "+" : "−") + fmt(Math.abs(r.costeMensualReal - alq)) + "/mes</b>" +
+        (Z.m2 ? "<br><span style='color:#6b7280'>" + Math.round(precio / m2).toLocaleString("es-ES") + " €/m² frente a " +
+          Math.round(Z.m2).toLocaleString("es-ES") + " €/m² de media en la zona</span>" : "") + "</div>";
+    }
+    html += "</div></div>"; // cierra col B y la rejilla
 
     // ---- ajustes editables
-    html += "<div class='izpf-ajustes'><table>" +
+    html += "<div class='izpf-ajustes'>" +
       (!obraNueva ?
         "<div class='izpf-fila'><label>CCAA:</label><select class='izpf-sel'></select></div>" +
         "<div class='izpf-fila'><label>ITP %:</label>" +
@@ -462,14 +465,14 @@
       "<input class='izpf-in' data-k='ibi' type='number' step='50' value='" + c.ibi + "'></div>" +
       "<div class='izpf-fila'><label>Comunidad €/mes:</label>" +
       "<input class='izpf-in' data-k='comunidad' type='number' step='5' value='" + c.comunidad + "'></div>" +
-      "<div class='izpf-fila'><label>Esfuerzo máx. (cuota sobre neto):</label>" +
+      "<div class='izpf-fila'><label>Esfuerzo máx.:</label>" +
       "<select class='izpf-selregla'><option value='30'" + (c.regla === 30 ? " selected" : "") + ">30 % (cómodo)</option>" +
       "<option value='35'" + (c.regla === 35 ? " selected" : "") + ">35 % (límite bancario)</option></select></div>" +
-      "<div class='izpf-nota'>Tipos por defecto (editable). Los impuestos se calculan sobre el " +
-      "precio de escritura; si el valor de referencia catastral es mayor, Hacienda usa el mayor. " +
-      "El ITP de cada CCAA cambia: ajústalo si lo necesitas.</div>" +
-      "</table></div>" +
-      "<button class='izpf-btn izpf-btn-aj'>⚙ ajustar impuestos, gastos y supuestos</button>";
+      "<div class='izpf-nota'>Tipos por defecto (editables). Los impuestos se calculan sobre el precio de escritura; " +
+      "si el valor de referencia catastral es mayor, Hacienda usa el mayor. El ITP cambia según la CCAA.</div>" +
+      "</div>" +
+      "<div class='izpf-pie'><button class='izpf-btn izpf-btn-aj'>⚙ Impuestos, gastos y supuestos</button>" +
+      "<span class='izpf-nota' style='margin:0'>Cambios guardados para todas las viviendas</span></div>";
 
     panel.innerHTML = html;
 
@@ -487,7 +490,8 @@
     function refrescar() {
       // recalcular en sitio re-creando el panel (sencillo y sin fugas)
       var oculto = panel.style.display === "none";
-      var nuevo = crearPanel(precio, obraNueva, cfg(), titulo);
+      var nuevo = crearPanel(precio, obraNueva, cfg(), titulo, m2);
+      if (panel.querySelector(".izpf-ajustes.open")) nuevo.querySelector(".izpf-ajustes").classList.add("open");
       nuevo.className = panel.className;
       nuevo.__izpfFila = panel.__izpfFila;
       if (oculto) nuevo.style.display = "none";
@@ -535,6 +539,7 @@
     if (sel) {
       ITP_CCAA.forEach(function (par) {
         var op = document.createElement("option");
+        op.value = par[0];
         op.textContent = par[0] + " (" + String(par[1]).replace(".", ",") + "%)";
         sel.appendChild(op);
       });
@@ -546,6 +551,14 @@
         if (hallada) c2.itp = hallada[1];
         guardarCfg(c2);
         refrescar();
+      });
+    }
+    var cmp = panel.querySelector(".izpf-cmp");
+    if (cmp) {
+      cmp.addEventListener("click", function () {
+        var ok = window.__izCmp && window.__izCmp.guardarUnidad({ nombre: titulo, precio: precio, m2: m2 });
+        cmp.textContent = ok ? "★ Guardada" : "aún cargando…";
+        if (ok) cmp.classList.add("on");
       });
     }
     panel.querySelector(".izpf-btn-aj").addEventListener("click", function () {
@@ -605,8 +618,9 @@
 
   function ponerCeldas(fila, precio, obraNueva) {
     if (fila.__izpfCeldas) return;
-    fila.__izpfCeldas = { precio: precio, obra: obraNueva };
-    ["liquido", "entrada", "reserva", "cuota", "esfuerzo"].forEach(function (k) {
+    var m2 = parseFloat(((fila.textContent || "").match(/(\d+(?:[.,]\d+)?)\s*m²/) || [])[1]);
+    fila.__izpfCeldas = { precio: precio, obra: obraNueva, m2: isNaN(m2) ? null : m2 };
+    ["m2", "liquido", "entrada", "reserva", "cuota", "esfuerzo"].forEach(function (k) {
       var td = document.createElement("span");
       td.className = "table__cell izpf-cell";
       td.setAttribute("data-k", k);
@@ -626,6 +640,15 @@
     fila.querySelectorAll(":scope > .izpf-cell").forEach(function (td) {
       var k = td.getAttribute("data-k");
       if (k === "liquido") td.innerHTML = "<span class='v'>" + fmt(r.liquido) + "</span><span class='l'>final " + fmt(r.final) + "</span>";
+      if (k === "m2") {
+        var Z = window.__izZona;
+        var em = d.m2 ? d.precio / d.m2 : null;
+        var dif = em && Z && Z.m2 ? 100 * (em / Z.m2 - 1) : null;
+        // obra nueva: ~+10 % sobre la media de la zona es lo normal
+        var colM = dif == null ? "#6b7280" : dif - (d.obra ? 10 : 0) <= 0 ? "#15803d" : dif - (d.obra ? 10 : 0) <= 15 ? "#b45309" : "#dc2626";
+        td.innerHTML = em ? "<span class='v' style='color:#141414 !important'>" + Math.round(em).toLocaleString("es-ES", { useGrouping: "always" }) + " €</span><span class='l'>" +
+          (dif != null ? "<b style='color:" + colM + " !important;font-weight:700'>" + (dif > 0 ? "+" : "") + Math.round(dif) + " %</b> vs zona" : "por m²") + "</span>" : "—";
+      }
       if (k === "entrada") td.innerHTML = "<span class='v'>" + fmt(r.entrada) + "</span><span class='l'>" + pct(c.entrada) + " del precio</span>";
       if (k === "reserva") td.innerHTML = "<span class='v'>" + fmt(r.reserva + r.arras) + "</span><span class='l'>" +
         (r.reserva > 0 ? fmt(r.reserva) + " + " + fmt(r.arras) : "arras " + pct(c.arras)) + "</span>";
@@ -663,7 +686,7 @@
         cab.className = "table__row izpf-head";
         var h = "<span class='table__cell'>Vivienda</span>";
         for (var i = 1; i < max; i++) h += "<span class='table__cell'></span>";
-        ["Cash necesario", "Entrada", "Reserva + arras", "Cuota", "Esfuerzo"].forEach(function (t) {
+        ["€/m²", "Cash necesario", "Entrada", "Reserva + arras", "Cuota", "Esfuerzo"].forEach(function (t) {
           h += "<span class='table__cell'>" + t + "</span>";
         });
         cab.innerHTML = h;
@@ -674,6 +697,7 @@
 
   // recalcula todo lo pintado (tras cambiar entrada, plazo, interés, neto…)
   function repintar() {
+    try { window.dispatchEvent(new CustomEvent("iz_cfg")); } catch (e) {}
     raicesDOM().forEach(function (raiz) {
       raiz.querySelectorAll(".izpf-badge").forEach(pintarBadge);
       raiz.querySelectorAll(".table__row").forEach(function (f) {
@@ -695,7 +719,7 @@
     var d = fila.__izpfCeldas;
     var nombre = ((fila.querySelector(".table__go-to-property") || {}).textContent || "")
       .replace(/\s+/g, " ").trim();
-    var panel = crearPanel(d.precio, d.obra, cfg(), nombre);
+    var panel = crearPanel(d.precio, d.obra, cfg(), nombre, d.m2);
     panel.classList.add("izpf-full");
     panel.__izpfFila = fila;
     caja.insertAdjacentElement("afterend", panel);
@@ -783,7 +807,8 @@
       if (!m) continue;
       var host = node.parentElement;
       if (!host || !visible(host)) continue;
-      if (host.closest(".izpf-panel, .izpf-badge, .izpf-cell")) continue;
+      // ni nuestros paneles ni la sección de barrio.js / comparador
+      if (host.closest(".izpf-panel, .izpf-badge, .izpf-cell, #izb, .izk-ov, .izk-fab")) continue;
       // barra fija superior: ahí no cabe nada (y un panel ahí tapa la página)
       if (host.closest("#fixed-toolbar")) continue;
 
@@ -869,6 +894,13 @@
       log("ERROR en iniciar: " + e.message + "\n" + (e.stack || ""));
     }
   }
+
+  // para barrio.js (puntuación, comparador): mismo cálculo y misma config
+  window.__izpf = { calcular: calcular, cfg: cfg, esObraNueva: esObraNueva };
+  // barrio.js publica el €/m² de la zona → columna €/m² y panel
+  window.addEventListener("iz_zona", function () {
+    document.querySelectorAll(".table__row").forEach(function (f) { if (f.__izpfCeldas) pintarCeldas(f); });
+  });
 
   if (document.readyState === "loading") {
     document.addEventListener("DOMContentLoaded", iniciar);
