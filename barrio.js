@@ -1554,6 +1554,12 @@
       box.className = "izb";
       if (an.despues) an.despues.insertAdjacentElement("afterend", box);
       else an.padre.insertBefore(box, an.antes || null);
+      // .detail-container es una rejilla: idealista coloca cada caja en la
+      // columna principal por sus clases; la nuestra copia la de su vecina
+      var vecina = an.despues || an.padre.querySelector(":scope > .ide-box-detail");
+      if (vecina) {
+        try { box.style.setProperty("grid-column", getComputedStyle(vecina).gridColumn, "important"); } catch (e) {}
+      }
       box.addEventListener("click", onClick);
       box.addEventListener("change", onChange);
       box.addEventListener("keydown", onKey);
