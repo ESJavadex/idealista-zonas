@@ -211,9 +211,10 @@
     ".izpf-badge:hover{color:#334155 !important;background:none !important;}" +
     // panel contenedor
     ".izpf-panel{background:#fff !important;border:1px solid #e2e8f0 !important;border-radius:10px !important;" +
-    "box-shadow:0 4px 16px rgba(0,0,0,.18) !important;padding:10px 12px !important;margin:6px 0 0 0 !important;" +
+    "box-shadow:0 4px 16px rgba(0,0,0,.18) !important;padding:10px 14px !important;margin:6px 0 0 0 !important;" +
     "z-index:99999 !important;font:13px/1.45 system-ui,sans-serif !important;color:#0f172a !important;" +
-    "width:300px !important;max-width:min(340px,92vw) !important;text-align:left !important;" +
+    "width:640px !important;max-width:calc(100vw - 32px) !important;text-align:left !important;" +
+    "overflow-x:auto !important;" + // sin tope de alto: TODO el desglose se ve
     "box-sizing:border-box !important;clear:both !important;position:relative !important;}" +
     ".izpf-panel *{box-sizing:border-box !important;font-family:system-ui,sans-serif !important;}" +
     // textos y tablas del panel
@@ -444,24 +445,22 @@
 
     panel.innerHTML = html;
 
-    // ---- blindaje anti-navegación: si el panel acaba dentro de un <a>
-    // (filas de la tabla de unidades), cancelamos la navegación de fondo sin
-    // romper checkboxes ni botones propios (su default solo se cancela en
-    // elementos no interactivos)
-    panel.addEventListener("click", function (ev) {
-      var tg = ev.target && ev.target.tagName;
-      if (tg !== "INPUT" && tg !== "SELECT" && tg !== "OPTION" && tg !== "LABEL" && tg !== "BUTTON") {
-        ev.preventDefault();
-      }
-      ev.stopPropagation();
-    });
+    // ---- anti-navegación: cortamos el evento en CAPTURA para que no llegue
+    // ni a la <a> de la fila ni a delegados de idealista; los handlers internos
+    // (inputs, chips, botones) están por debajo y siguen ejecutándose
+    panel.addEventListener("click", function (ev) { ev.stopPropagation(); }, true);
 
     // ---- comportamiento
-    panel.querySelector(".izpf-x").addEventListener("click", function () { panel.remove(); });
+    panel.querySelector(".izpf-x").addEventListener("click", function () {
+      panel.style.display = "none"; // solo oculta: "precio final" lo re-muestra
+    });
 
     function refrescar() {
       // recalcular en sitio re-creando el panel (sencillo y sin fugas)
-      panel.replaceWith(crearPanel(precio, obraNueva, cfg()));
+      var oculto = panel.style.display === "none";
+      var nuevo = crearPanel(precio, obraNueva, cfg());
+      if (oculto) nuevo.style.display = "none";
+      panel.replaceWith(nuevo);
     }
 
     panel.querySelectorAll(".izpf-in").forEach(function (inp) {
@@ -560,22 +559,65 @@
       ? "precio final <b>" + fmt(r.final) + "</b> · líquido " + fmt(r.liquido) +
         " · cuota " + fmt(r.cuota) + "/mes"
       : "precio final <b>" + fmt(r.final) + "</b>";
-    badge.title = "Precio real con impuestos y gastos (IVA/AJD/ITP + notaría, registro…) — click para desglose completo, líquido, cronograma y simulación de hipoteca";
-    badge.addEventListener("click", function (ev) {
-      ev.preventDefault();   // por si estamos dentro de un enlace
-      ev.stopPropagation();
-      // incrustado en el propio bloque del precio: el panel es hermano del
-      // badge, en flujo normal, así empuja el contenido como cualquier
-      // elemento más de la página
-      var ya = contenedor.querySelector(":scope > .izpf-panel");
-      if (ya) { ya.remove(); return; }
-      // cierra otros paneles abiertos
-      document.querySelectorAll(".izpf-panel").forEach(function (p) { p.remove(); });
-      var panel = crearPanel(precio, obraNueva, cfg());
-      contenedor.appendChild(panel);
-    });
+    badge.title = "Precio real con impuestos y gastos (IVA/AJD/ITP + notaría, registro…) — click para mostrar/ocultar el desglose";
+
+    // SIEMPRE VISIBLE: el panel se monta de entrada, sin pulsar nada.
+    // El click en "precio final" (o en el ✕) solo lo oculta / vuelve a mostrar.
     contenedor.appendChild(badge);
+    contenedor.appendChild(crearPanel(precio, obraNueva, cfg()));
   }
+
+  // alterna el panel de un badge (ocultado con el ✕)
+  function alternarPanel(badge) {
+    var cont = badge.parentElement;
+    if (!cont) return;
+    var panel = cont.querySelector(":scope > .izpf-panel");
+    if (panel) panel.style.display = (panel.style.display === "none") ? "" : "none";
+  }
+
+  // UN solo listener global en CAPTURA, registrado al cargar (document_start):
+  // corre ANTES que cualquier handler de idealista. Decide todo:
+  //  · click en "precio final" → que la fila (<a>) NO navegue y alternar panel
+  //  · click en el panel → anula el <a> en los clics inertes; checkboxes,
+  //    selects y botones conservan su comportamiento nativo
+  // ¿el click cayó dentro del bloque que alberga un precio final? (celda de la
+  // tabla de unidades o precio principal) — para que pulsar el precio de la fila
+  // abra/oculte el panel en lugar de navegar al anuncio
+  function bloqueDelPrecio(t) {
+    var a = t;
+    while (a && a !== document.body) {
+      if (a.querySelector && a.querySelector(":scope > .izpf-badge")) return a;
+      a = a.parentElement;
+    }
+    return null;
+  }
+
+  document.addEventListener("click", function (ev) {
+    var t = ev.target;
+    if (!t || !t.closest) return;
+    var badge = t.closest(".izpf-badge");
+    if (badge) {
+      ev.preventDefault();
+      ev.stopPropagation();
+      alternarPanel(badge);
+      return;
+    }
+    var panel = t.closest(".izpf-panel");
+    if (panel) {
+      var tg = t.tagName;
+      if (tg !== "INPUT" && tg !== "SELECT" && tg !== "OPTION" && tg !== "LABEL" && tg !== "BUTTON") {
+        ev.preventDefault(); // clics inertes: anula el <a> de la fila
+      }
+      return;
+    }
+    // el propio bloque del precio (celda / precio principal): no navegar
+    var bloque = bloqueDelPrecio(t);
+    if (bloque) {
+      ev.preventDefault();
+      ev.stopPropagation();
+      alternarPanel(bloque.querySelector(":scope > .izpf-badge"));
+    }
+  }, true);
 
   // ------------------------------------------------------------- barrido
 
