@@ -5,8 +5,8 @@
 //     aquí solo se integra su interruptor (window.__izZonas)
 //   · DANA 2024 · zona inundada        (WMS Institut Cartogràfic Valencià)
 //   · Riesgo de inundación PATRICOVA    (ArcGIS REST, GVA)
-//   · Renta por sección censal          (INE, ADRH 2023) — zoom ≥ 13
-//   · Pisos turísticos por sección      (INE, mayo 2026) — zoom ≥ 13
+//   · Renta por sección censal          (INE, ADRH 2023) — zoom ≥ 11
+//   · Pisos turísticos por sección      (INE, mayo 2026) — zoom ≥ 11
 //   · Supermercados y estaciones        (OpenStreetMap / Overpass) — zoom ≥ 15
 //
 // Se ejecuta en el mundo MAIN, después de hook.js (usa window.__izMapas, que
@@ -191,16 +191,17 @@
   };
 
   // ---------------------------------------------- capas vectoriales INE
-  // Se piden por celdas fijas de 0,02° (cada celda una vez) y solo con zoom
-  // suficiente: así mover el mapa no repite consultas
-  var CELDA = 0.02;
+  // Se piden por celdas fijas de 0,05° (cada celda una vez) y solo con zoom
+  // suficiente: así mover el mapa no repite consultas. OJO: la vista normal de
+  // una ciudad en idealista es zoom 12 (~0,4° de ancho): tiene que caber ahí
+  var CELDA = 0.05;
   function celdasVisibles(map) {
     var b = map.getBounds();
     if (!b) return [];
     var sw = b.getSouthWest(), ne = b.getNorthEast(), out = [];
     var x0 = Math.floor(sw.lng() / CELDA), x1 = Math.floor(ne.lng() / CELDA);
     var y0 = Math.floor(sw.lat() / CELDA), y1 = Math.floor(ne.lat() / CELDA);
-    if ((x1 - x0 + 1) * (y1 - y0 + 1) > 60) return null; // demasiado alejado
+    if ((x1 - x0 + 1) * (y1 - y0 + 1) > 80) return null; // demasiado alejado
     for (var x = x0; x <= x1; x++) for (var y = y0; y <= y1; y++) out.push([x, y]);
     return out;
   }
@@ -257,7 +258,7 @@
     var z = map.getZoom() || 0;
     if (z < this.def.zoomMin) { estadoCapa(this.def.id, "acerca el mapa (zoom ≥ " + this.def.zoomMin + ")"); return; }
     var celdas = celdasVisibles(map);
-    if (!celdas) { estadoCapa(this.def.id, "acerca el mapa"); return; }
+    if (!celdas) { estadoCapa(this.def.id, "acerca un poco el mapa para verla"); return; }
     var hechas = this.celdas.get(map), self = this;
     var nuevas = celdas.filter(function (c) { return !hechas.has(c.join(",")); });
     if (!nuevas.length) { estadoCapa(this.def.id, ""); return; }
@@ -268,7 +269,8 @@
       }).join(",");
       var url = self.def.url + "?geometry=" + env + "&geometryType=esriGeometryEnvelope&inSR=4326&outSR=4326" +
         "&spatialRel=esriSpatialRelIntersects&outFields=" + encodeURIComponent(self.def.campos) +
-        "&returnGeometry=true&maxAllowableOffset=0.00008&geometryPrecision=5&f=geojson";
+        "&returnGeometry=true&maxAllowableOffset=" + (z >= 14 ? 0.00008 : z >= 12 ? 0.0002 : 0.0004) +
+        "&geometryPrecision=5&f=geojson";
       self.cargando++;
       estadoCapa(self.def.id, "cargando…", true);
       fetch(url).then(function (r) { return r.json(); }).then(function (gj) {
@@ -291,7 +293,7 @@
 
   var capaRenta = new CapaINE({
     id: "renta", url: INE_RENTA, campos: "cusec,nmun,dato1", campo: "dato1",
-    tramos: TRAMOS_RENTA, zoomMin: 13,
+    tramos: TRAMOS_RENTA, zoomMin: 11,
     texto: function (f) {
       var v = f.getProperty("dato1");
       return "<b>" + (v == null ? "sin dato (secreto estadístico)" : fmtEur(v) + "/persona·año") + "</b><br>" +
@@ -301,7 +303,7 @@
   });
   var capaTur = new CapaINE({
     id: "turisticos", url: INE_TUR, campos: "cusec,nmun,porcentaje_vivienda_turistica,vivienda_turistica",
-    campo: "porcentaje_vivienda_turistica", tramos: TRAMOS_TUR, zoomMin: 13,
+    campo: "porcentaje_vivienda_turistica", tramos: TRAMOS_TUR, zoomMin: 11,
     texto: function (f) {
       var v = f.getProperty("porcentaje_vivienda_turistica"), n = f.getProperty("vivienda_turistica");
       return "<b>" + (v == null ? "sin pisos turísticos" : fmtPct(v) + " de las viviendas") + "</b>" +

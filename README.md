@@ -274,5 +274,5 @@ Fuera de las regiones descargadas se usa Overpass en directo.
 
 En la vista mapa, el panel **Capas** (abajo a la izquierda) activa: tus zonas,
 la zona inundada por la DANA 2024, el riesgo PATRICOVA, la renta por sección
-censal (INE, zoom ≥ 13), los pisos turísticos (INE) y súper/estaciones (OSM,
+censal y los pisos turísticos (INE, zoom ≥ 11) y súper/estaciones (OSM,
 zoom ≥ 15). Ver `capas.js`.
