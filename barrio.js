@@ -23,7 +23,7 @@
   if (window.top !== window) return; // solo el documento principal
   if (!/idealista\./.test(location.hostname) && !window.__IZ_TEST) return; // __IZ_TEST: página de pruebas local
 
-  var VERSION = "2.0.0";
+  var VERSION = "2.1.0";
   var RE_DETALLE = /\/(obra-nueva|inmueble)\/(\d+)/;
 
   // ----------------------------------------------------------------- utils
@@ -1899,7 +1899,7 @@
     }
     bar.innerHTML = "<div class='fila'><span class='t'>🧭 Nota de zona</span><span class='s'>" + hechas + "/" + L.tarjetas.length +
       " calculadas · " + buenas + " buenas (≥ 6,5)" + (ocultas ? " · <b>" + ocultas + " plegadas por tus filtros</b> <a href='#' class='izl-quitar'>quitar filtros</a>" : "") + "</span>" +
-      "<button class='izl-b izl-ordenar'>Ordenar por nota ↓</button></div>" +
+      "<button class='izl-b izl-ordenar'>" + (L.ordenNota === "desc" ? "Nota: mejor primero ↓" : L.ordenNota === "asc" ? "Nota: peor primero ↑" : "Ordenar por nota ↓") + "</button></div>" +
       "<div class='fila filtros'>" +
       "<label>Nota mínima <select data-f='min'>" + opciones([0, 5, 6, 6.5, 7, 8], f.min, function (v) { return v ? "≥ " + String(v).replace(".", ",") : "cualquiera"; }) + "</select></label>" +
       "<label><input type='checkbox' data-f='rojas'" + (f.rojas ? " checked" : "") + "> Ocultar zonas rojas</label>" +
@@ -1932,8 +1932,11 @@
       T.art.parentNode.insertBefore(h, T.art);
       return h;
     });
+    // las que aún no tienen nota, siempre al final (en los dos sentidos)
+    var asc = L.ordenNota === "asc";
     var orden = L.tarjetas.slice().sort(function (a, b) {
-      return (b.nota == null ? -1 : b.nota) - (a.nota == null ? -1 : a.nota);
+      if (a.nota == null || b.nota == null) return (a.nota == null) - (b.nota == null);
+      return asc ? a.nota - b.nota : b.nota - a.nota;
     });
     // los huecos en orden de documento
     huecos.sort(function (x, y) { return x.compareDocumentPosition(y) & Node.DOCUMENT_POSITION_FOLLOWING ? -1 : 1; });
@@ -1943,8 +1946,9 @@
     });
   }
   var tOrden = null;
+  // 1.er clic: de mayor a menor; los siguientes alternan
   function activarOrdenNota() {
-    L.ordenNota = true;
+    L.ordenNota = L.ordenNota === "desc" ? "asc" : "desc";
     ordenarPorNota();
     marcarOrden();
   }
@@ -1968,6 +1972,11 @@
     var a = document.querySelector(".izl-orden");
     if (!a) return;
     a.classList.toggle("selected", !!L.ordenNota);
+    a.textContent = "Nota 🧭" + (L.ordenNota === "asc" ? " ↑" : L.ordenNota === "desc" ? " ↓" : "");
+    a.title = L.ordenNota === "desc" ? "Mejor nota primero · pulsa para invertir" :
+      L.ordenNota === "asc" ? "Peor nota primero · pulsa para invertir" : "Ordena esta página por la nota de zona";
+    var bb = document.querySelector("#izl-bar .izl-ordenar");
+    if (bb) bb.textContent = L.ordenNota === "desc" ? "Nota: mejor primero ↓" : L.ordenNota === "asc" ? "Nota: peor primero ↑" : "Ordenar por nota ↓";
     if (L.ordenNota) document.querySelectorAll("#order-by ul > li > .selected:not(.izl-orden)").forEach(function (x) {
       x.classList.add("izl-desel");
     });

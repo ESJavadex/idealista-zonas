@@ -13,7 +13,7 @@
 (function () {
   "use strict";
 
-  var VERSION = "2.0.0"; // se canta en consola: así sabemos qué build corre de verdad
+  var VERSION = "2.1.0"; // se canta en consola: así sabemos qué build corre de verdad
 
   // ------------------------------------------------------------- ajustes
   var LS_CFG = "iz_pf_cfg";   // valores guardados

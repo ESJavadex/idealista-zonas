@@ -1,18 +1,28 @@
-# Idealista Zonas (verde/rojo) 🟢🔴
+# Idealista Zonas 🟢🔴 · ¿comprar aquí?
 
-Extensión de navegador (Chrome / Edge / Brave) que pinta **encima del mapa de
-idealista** las zonas **buenas en verde** y las **malas en rojo**, según TU
-propia clasificación. Buscas piso en vista mapa y descartas zonas de un vistazo.
+Extensión de navegador (Chrome / Edge / Brave) para buscar casa en idealista
+**en una ciudad que no conoces**. Junta en la propia web de idealista lo que el
+anuncio no cuenta:
 
-- 🟢 Barrios de las capitales y municipios de provincia como polígonos o círculos
-- 🔌 Sin permisos: todo ocurre dentro de la página
-- ✏️ 100% editable: cada zona es una línea; generador de datos incluido
-- 🗺️ Funciona en cualquier provincia de España (y en URLs libres `/point/…`,
-  donde pinta todas las zonas para estar siempre activa)
+- 🟢 **Tus zonas en el mapa**: barrios y municipios en verde, naranja o rojo
+  según TU clasificación (seguridad, contexto…), más **capas** de inundación
+  (DANA 2024 y PATRICOVA), renta por sección censal y pisos turísticos.
+- 💶 **Precio real** en cada ficha: impuestos, gastos, cash necesario, cuota,
+  esfuerzo y calendario de pagos, también por cada vivienda de una promoción.
+- 🧭 **Nota de 0 a 10** de cada vivienda con resumen a favor / a vigilar:
+  inundación, renta del barrio, servicios a pie, tiempo en coche, €/m² frente
+  a la zona, pisos turísticos, alquilar vs comprar y checklist.
+- 📋 **En los listados**: nota en cada tarjeta, **filtros** (zonas rojas,
+  inundables, pisos turísticos, renta…) y **orden por nota** ↑↓.
+- ⚖️ **Comparador** de las viviendas que guardes, exportable a CSV/JSON.
 
-> **Nota:** este repositorio es genérico y **no incluye zonas precargadas**
-> (los veredictos son personales). Genera las tuyas en 2 minutos con el script
-> incluido, o escribe las tuyas a mano.
+Sin permisos de navegador. Todos los datos salen de fuentes públicas (INE,
+Generalitat, IGN, OpenStreetMap, OSRM y los informes de precios de idealista)
+y se guardan en caché en tu navegador.
+
+> **Nota:** el repositorio **no incluye tus zonas** (los veredictos son
+> personales) ni los datos de servicios (se generan con un script). Ver
+> [Instalar](#1-instalar-1-minuto).
 
 ---
 
@@ -31,9 +41,16 @@ propia clasificación. Buscas piso en vista mapa y descartas zonas de un vistazo
    https://www.idealista.com/venta-viviendas/madrid-provincia/mapa-google
    ```
 
-7. Verás el mapa coloreado y un botón flotante **abajo a la izquierda**:
-   **`✔ Zonas ON · N verdes · N rojas`**. Haz clic para apagar/encender las
-   zonas (se recuerda entre sesiones).
+7. Verás el mapa coloreado y el panel **Capas** abajo a la izquierda para
+   encender/apagar tus zonas y el resto de capas (se recuerda entre sesiones).
+8. (Recomendado) Genera la copia local de servicios de las regiones donde
+   buscas, para que «servicios a pie» no dependa de Overpass (ver
+   [más abajo](#-servicios-sin-depender-de-overpass)):
+
+   ```bash
+   pip install osmium
+   python3 herramientas/generar_servicios.py valencia castilla-y-leon galicia
+   ```
 
 ### 2. Usarlo en el día a día
 
@@ -123,104 +140,27 @@ ninguna provincia (las `/point/…`), la extensión pinta todas las zonas.
 
 ---
 
-## 🧠 Cómo funciona por dentro
+## 💶 Precio real y simulación
 
-Los mapas de idealista son Google Maps embebidos. En cuanto la página define
-`window.google`, la extensión envuelve el constructor `google.maps.Map` (y
-`google.maps.importLibrary`) para capturar cada mapa que idealista crea, y pinta
-encima `google.maps.Polygon` / `google.maps.Circle`. Al navegar dentro de
-idealista (SPA) se redibuja automáticamente; con el botón flotante se
-enciende/apaga sin recargar.
+En las fichas (`/obra-nueva/…` y `/inmueble/…`), bajo cada precio aparece
+**«precio final X €»** (anuncio + impuestos + gastos). En las promociones de obra
+nueva, la tabla **«pisos disponibles en venta»** gana columnas a la derecha
+(con scroll; la vivienda queda fija): **€/m²** (y % frente a la zona), **cash
+necesario**, **entrada**, **reserva + arras**, **cuota** y **esfuerzo**.
 
-| Fichero | Qué es |
-|---|---|
-| `zonas.js` | **Los datos** (generado; git-ignorado para que cada uno tenga el suyo) |
-| `zonas.js.ejemplo` | Plantilla mínima para empezar a mano |
-| `hook.js` | Motor: captura del mapa, dibujo, botón flotante |
-| `manifest.json` | Manifiesto MV3 (content scripts, mundo MAIN, sin permisos) |
-| `herramientas/generar_zonas.py` | Genera `zonas.js` desde fuentes oficiales |
-| `herramientas/config.local.json` | TUS veredictos (git-ignorado) |
-| `data-src/` | Caché de los GeoJSON descargados (git-ignorado) |
-| `docs/skill-clasificar-zonas.md` | Metodología para clasificar zonas con evidencia (renta, criminalidad, prensa…) |
+Al pulsar una vivienda (o el precio principal) se abre el panel:
 
-## 🎨 Verde, rojo y gris (duda)
-
-Las zonas pueden tener cinco veredictos (escala de severidad):
-
-- 🟢 **verde** (`bien`) — buena zona, con evidencia
-- 🟠 **naranja** (`regular`) — zona normal/transición, sin señales fuertes
-- 🔴 **rojo** (`mal`) — mala zona, con evidencia (p. ej. criminalidad muy superior a la media)
-- 🟤 **granate** (`muy_mal`) — la peor, con evidencia sólida y convergente
-- ⚪ **gris** (`duda`) — duda: evidencia insuficiente o contradictoria. **Es el
-  color por defecto** de cualquier zona que no esté en las listas.
-
-En `config.local.json` las listas correspondientes son `verdes`, `regulares`,
-`rojos` y `muy_mal`.
-
-Rellena `verdes` y `rojos` en `config.local.json` solo con datos
-(renta media del INE, delitos por habitante, prensa local recurrente…).
-La metodología completa está en
-[`docs/skill-clasificar-zonas.md`](docs/skill-clasificar-zonas.md).
-
-## ⚠️ Aviso
-
-Los veredictos "bien/mal" son **opiniones subjetivas**, no datos objetivos:
-cada uno define los suyos. Este proyecto no está afiliado a Idealista.
-
-## 📄 Licencia
-
-[MIT](LICENSE) — úsalo, modifícalo y compártelo libremente.
-
----
-
-# English summary
-
-A browser extension that paints **green (good) / red (bad) zones on top of the
-Idealista.com property map**, so you can filter neighbourhoods at a glance while
-house-hunting.
-
-**Install**: clone this repo → `cp zonas.js.ejemplo zonas.js` (or generate real
-data) → `chrome://extensions` → enable *Developer mode* → *Load unpacked* →
-open any Idealista map page (`/mapa-google`). A floating button (bottom-left)
-toggles the overlays.
-
-**Generate data**: `herramientas/generar_zonas.py` downloads official
-neighbourhood/municipality boundaries (OpenStreetMap / city open-data portals)
-and writes `zonas.js`. You only provide your own green-zone list in
-`herramientas/config.local.json` (git-ignored, subjective by design). See the
-Spanish guide above; code comments are in plain Spanish.
-
-**Manual mode**: edit `zonas.js` directly — each zone is one line, either a
-`"punto"` (lat/lng + radius in km, easiest) or a `"poligono"` (`[[lat,lng], …]`).
-`veredicto: "bien"` → green, `"mal"` → red. On URLs that match no province
-(free-panning `/point/…` views) all zones are drawn, so it is always active.
-
-No permissions required.
-
----
-
-## 💶 Precio real y simulación (v1.4.0)
-
-En las fichas de inmueble (`/obra-nueva/...` y `/inmueble/...`) la extensión añade
-junto a cada precio (el principal y cada piso de "pisos disponibles en venta") un
-badge **🧮 final ≈ X €** con el precio de verdad: anuncio + impuestos + gastos.
-
-Al pulsarlo se abre un panel con:
-
-- **Desglose completo**: IVA + AJD (obra nueva) o ITP (segunda mano), notaría,
-  registro, gestoría y tasación (opcionales, con checkbox).
-- **Precio final** y % extra sobre el precio de anuncio.
-- **💰 Líquido necesario** hasta la escritura: entrada + impuestos + gastos
-  (lo que de verdad hay que tener ahorrado; por defecto entrada 20 % → ~30 % del precio final).
-- **📅 Cronograma**: cuándo pagas cada cosa — reserva (hoy), arras (firma),
-  resto de entrada, impuestos y gastos (escritura). Reserva y arras son a cuenta.
-- **🏦 Simulación de hipoteca** (por defecto 20 % entrada, 30 años, 3 %): cuota mensual,
-  intereses totales, coste mensual real (cuota + comunidad + IBI/12),
-  TODO pagado al final e ingreso mínimo recomendado (cuota ≤ 35 % del neto).
-- **⚡ Escenarios rápidos**: cuota con entrada 20/25/30 % × plazo 25/30 años, un click para aplicarlos.
-- **⚙ ajustar**: edita IVA, AJD, ITP, notaría, registro, gestoría, tasación, reserva,
-  arras %, IBI, comunidad y selector de CCAA (ITP por comunidad, autodetectada
-  por la provincia de la página).
+- **Cifras clave**: precio final, cash necesario (y lo que hace falta el día de
+  la firma), cuota y coste mensual real, % de esfuerzo sobre vuestro neto.
+- **Desglose**: IVA + AJD (obra nueva) o ITP (segunda mano), notaría, registro,
+  gestoría y tasación (opcionales).
+- **Cuándo pagas cada cosa**: reserva → arras → escritura.
+- **Hipoteca**: entrada, plazo, interés y neto del hogar editables; préstamo,
+  intereses totales, neto necesario y «todo pagado al final».
+- **Escenarios** de entrada 20/25/30 % × 25/30 años con un clic.
+- **Alquilar algo igual** en la zona frente a tu coste mensual.
+- **⚙ Impuestos, gastos y supuestos**: todo editable (CCAA/ITP, reserva, arras,
+  IBI, comunidad…). Se guarda para todas las viviendas.
 
 Notas:
 
@@ -233,7 +173,7 @@ Notas:
   o el valor de referencia superan el precio, Hacienda usa el mayor.
 - Notaría y registro son estimaciones (varían con el precio y el número de páginas).
 
-## 🧭 ¿Comprar aquí? (v2.0.0)
+## 🧭 ¿Comprar aquí? (nota de cada vivienda)
 
 En cada ficha (obra nueva y segunda mano) aparece una sección nueva bajo la
 tabla de viviendas con una **nota de 0 a 10**, un resumen (a favor / a vigilar)
@@ -260,16 +200,22 @@ su nota rápida, con el desglose al pulsarla. La dirección del anuncio se
 geocodifica con CartoCiudad (IGN), sin pedir las fichas a idealista. Arriba
 hay una barra con **filtros** (nota mínima, ocultar zonas rojas / solo verdes,
 ocultar inundables, máximo de pisos turísticos, renta mínima del barrio) que se
-recuerdan, y en el selector de orden de idealista aparece **«Nota 🧭»** para
-ordenar la página por nota.
+recuerdan (las viviendas filtradas quedan **plegadas en una línea con el
+motivo**, no desaparecen), y en el selector de orden de idealista aparece
+**«Nota 🧭»**: un clic ordena de mejor a peor (↓), otro de peor a mejor (↑).
+El orden es de la página que estás viendo (idealista ordena en su servidor).
+Si la tarjeta no da la calle se marca «ubicación aprox.»; si no se puede
+situar, se leen las coordenadas de su ficha (como mucho 6 por página). Cada
+ficha que abres guarda sus coordenadas exactas para el listado.
 
 **Comparador**: botón *☆ Guardar para comparar* en la sección (o *☆ Comparar
 esta* en el panel de cada vivienda de la tabla). El botón flotante *⚖
 Comparador* abre una tabla con todas, marca en verde lo mejor de cada fila,
 permite notas y exporta a **CSV** (Excel en español), **JSON** o texto.
 
-**Servicios sin depender de Overpass**: los servidores públicos de Overpass se
-saturan a menudo. Genera una copia local de tu región (≈1 MB, 1 minuto):
+### 🛒 Servicios sin depender de Overpass
+
+Los servidores públicos de Overpass se saturan a menudo. Genera una copia local de tu región (≈1 MB, 1 minuto):
 
 ```bash
 pip install osmium
@@ -277,11 +223,136 @@ python3 herramientas/generar_servicios.py            # Comunitat Valenciana
 python3 herramientas/generar_servicios.py castilla-y-leon galicia   # Valladolid, Vigo…
 ```
 
+Regiones = nombres de Geofabrik (`valencia` es la Comunitat Valenciana).
 Fuera de las regiones descargadas se usa Overpass en directo.
 
-## 🗺️ Capas del mapa (v2.0.0)
+### ⚡ Caché y uso de idealista
+
+- Todo lo que se consulta (inundación, renta, precios de zona, coordenadas,
+  tiempos en coche…) se guarda en `localStorage` con caducidad (de 7 a 365
+  días según el dato) y se limpia solo. Al volver a una ficha o listado, la
+  nota sale casi al instante, y se va pintando según llega cada dato.
+- Las peticiones a idealista (solo informes de precios y, como último recurso,
+  alguna ficha) van **en fila, una cada 0,8 s**: su antibots salta con ráfagas.
+  Si te sale un captcha, pásalo y sigue.
+
+### 🌍 Cobertura
+
+- **Toda España**: renta y pisos turísticos (INE), precio de zona (idealista),
+  coche (OSRM), tus zonas.
+- **Solo Comunitat Valenciana**: inundación (DANA 2024 y PATRICOVA).
+- **Servicios a pie**: las regiones que generes (si no, Overpass en directo).
+- Destinos en coche por defecto: València, Valladolid y Vigo (centro, estación
+  de AVE y aeropuerto); puedes añadir los tuyos.
+
+### 🔒 Privacidad
+
+Para calcular, la extensión envía **coordenadas o direcciones de los anuncios**
+(nunca datos tuyos) a: INE, Institut Cartogràfic Valencià, CartoCiudad (IGN),
+OSRM, OpenStreetMap/Overpass y Nominatim (solo al añadir un destino). Tus
+zonas, comparador, notas y simulación no salen de tu navegador.
+
+## 🗺️ Capas del mapa
 
 En la vista mapa, el panel **Capas** (abajo a la izquierda) activa: tus zonas,
 la zona inundada por la DANA 2024, el riesgo PATRICOVA, la renta por sección
-censal y los pisos turísticos (INE, zoom ≥ 11) y súper/estaciones (OSM,
-zoom ≥ 14; usa la copia local de servicios si la hay). Ver `capas.js`.
+censal y los pisos turísticos (INE, zoom ≥ 11; pasa el ratón o pulsa una
+sección para ver el dato) y súper/estaciones (OSM, zoom ≥ 14; usa la copia
+local de servicios si la hay). El panel se pliega pulsando su cabecera.
+
+---
+
+## 🧠 Cómo funciona por dentro
+
+Todo corre como content scripts en el mundo MAIN de la página (sin permisos).
+Los mapas de idealista son Google Maps embebidos. En cuanto la página define
+`window.google`, la extensión envuelve el constructor `google.maps.Map` (y
+`google.maps.importLibrary`) para capturar cada mapa que idealista crea, y pinta
+encima `google.maps.Polygon` / `google.maps.Circle`. Al navegar dentro de
+idealista (SPA) se redibuja automáticamente; con el botón flotante se
+enciende/apaga sin recargar.
+
+| Fichero | Qué es |
+|---|---|
+| `zonas.js` | **Tus zonas** (generado; git-ignorado para que cada uno tenga el suyo) |
+| `zonas.js.ejemplo` | Plantilla mínima para empezar a mano |
+| `hook.js` | Captura los mapas de Google de idealista y pinta tus zonas |
+| `capas.js` | Panel **Capas** del mapa: DANA, PATRICOVA, renta, pisos turísticos, súper/estaciones |
+| `precio-final.js` | Precio real, columnas de la tabla de viviendas y panel de hipoteca |
+| `barrio.js` | Sección «¿Comprar aquí?» (nota, resumen, bloques), nota en listados, filtros y comparador |
+| `puente.js` | Mundo ISOLATED: pasa a la página la URL de la extensión (para leer `servicios/`) |
+| `manifest.json` | Manifiesto MV3 (content scripts en el mundo MAIN, sin permisos) |
+| `herramientas/generar_zonas.py` | Genera `zonas.js` desde fuentes oficiales |
+| `herramientas/generar_servicios.py` | Genera `servicios/<región>.json` desde OpenStreetMap (Geofabrik) |
+| `herramientas/config.local.json` | TUS veredictos (git-ignorado) |
+| `servicios/` | Copia local de servicios por región (generada, git-ignorada) |
+| `data-src/` | Caché de descargas (GeoJSON, `.osm.pbf`; git-ignorado) |
+| `docs/skill-clasificar-zonas.md` | Metodología para clasificar zonas con evidencia (renta, criminalidad, prensa…) |
+
+## 🎨 Verde, rojo y gris (duda)
+
+Las zonas pueden tener cinco veredictos (escala de severidad):
+
+- 🟢 **verde** (`bien`) — buena zona, con evidencia
+- 🟠 **naranja** (`regular`) — zona normal/transición, sin señales fuertes
+- 🔴 **rojo** (`mal`) — mala zona, con evidencia (p. ej. criminalidad muy superior a la media)
+- 🟤 **granate** (`muy_mal`) — la peor, con evidencia sólida y convergente
+- ⚪ **gris** (`duda`) — duda: evidencia insuficiente o contradictoria. **Es el
+  color por defecto** de cualquier zona que no esté en las listas.
+
+En `config.local.json` las listas correspondientes son `verdes`, `regulares`,
+`rojos` y `muy_mal`.
+
+Rellena `verdes` y `rojos` en `config.local.json` solo con datos
+(renta media del INE, delitos por habitante, prensa local recurrente…).
+La metodología completa está en
+[`docs/skill-clasificar-zonas.md`](docs/skill-clasificar-zonas.md).
+
+## ⚠️ Aviso
+
+Los veredictos "bien/mal" son **opiniones subjetivas**, no datos objetivos:
+cada uno define los suyos. Este proyecto no está afiliado a Idealista.
+
+## 📄 Licencia y fuentes
+
+Código: [MIT](LICENSE) — úsalo, modifícalo y compártelo libremente.
+
+Datos de terceros, consultados en directo o generados por los scripts: ©
+colaboradores de OpenStreetMap (ODbL), INE (Atlas de Distribución de Renta de
+los Hogares; viviendas turísticas), Institut Cartogràfic Valencià /
+Generalitat Valenciana (DANA 2024, PATRICOVA; CC BY 4.0), IGN – CartoCiudad
+(CC BY 4.0), OSRM (servidor de demostración) e informes de precios de
+idealista. Este proyecto no está afiliado a ninguno de ellos.
+
+---
+
+# English summary
+
+A browser extension that paints **green (good) / red (bad) zones on top of the
+Idealista.com property map**, so you can filter neighbourhoods at a glance while
+house-hunting.
+
+**Install**: clone this repo → `cp zonas.js.ejemplo zonas.js` (or generate real
+data) → `chrome://extensions` → enable *Developer mode* → *Load unpacked* →
+open any Idealista map page (`/mapa-google`). A floating button (bottom-left)
+toggles the overlays.
+
+**Generate data**: `herramientas/generar_zonas.py` downloads official
+neighbourhood/municipality boundaries (OpenStreetMap / city open-data portals)
+and writes `zonas.js`. You only provide your own green-zone list in
+`herramientas/config.local.json` (git-ignored, subjective by design). See the
+Spanish guide above; code comments are in plain Spanish.
+
+**Manual mode**: edit `zonas.js` directly — each zone is one line, either a
+`"punto"` (lat/lng + radius in km, easiest) or a `"poligono"` (`[[lat,lng], …]`).
+`veredicto: "bien"` → green, `"mal"` → red. On URLs that match no province
+(free-panning `/point/…` views) all zones are drawn, so it is always active.
+
+It also adds, on listing pages, the **real price** (taxes, fees, cash needed,
+monthly payment), a **0–10 score** per property (flood risk from the 2024 DANA
+and PATRICOVA, census-tract income, walkable services, driving time, €/m² vs
+area, holiday rentals) with filters and sort-by-score on search results, map
+layers and an exportable comparison table. Data come from public sources
+(INE, Generalitat Valenciana, IGN, OpenStreetMap, OSRM).
+
+No browser permissions required.
