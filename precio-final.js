@@ -121,11 +121,17 @@
     catch (e) { return Math.round(n) + " €"; }
   }
   function pct(n) { return String(n).replace(".", ",") + " %"; }
+  // "Desde 242.000 €", "1.234.567 €", "242000 €"… (el prefijo "Desde" de las
+  // promociones NO debe romper la extracción)
   function num(txt) {
-    var t = (txt || "").replace(/\s/g, "").replace(/€/g, "")
-      .replace(/\./g, "").replace(",", ".");
+    var t = (txt || "").replace(/\./g, "").replace(",", ".")
+      .replace(/[^\d.]/g, "");
     var n = parseFloat(t);
     return isNaN(n) ? 0 : n;
+  }
+  // texto que ES exactamente un precio (con o sin "Desde")
+  function esPrecio(txt) {
+    return /^(?:desde\s+)?\d{1,3}(?:\.\d{3})*\s?€$/i.test((txt || "").trim());
   }
 
   // cálculo completo a partir del precio y la config
@@ -532,8 +538,8 @@
       // no marcar precios dentro de nuestros paneles ni duplicar familia
       if (el.closest && el.closest(".izpf-panel")) continue;
       if (familiaConBadge(el)) continue;
-      var t = (el.textContent || "").trim();
-      if (/^\d{1,3}(\.\d{3})* €$/.test(t)) {
+      // "242.000 €" o "Desde 242.000 €" exactos, texto corto
+      if (esPrecio(el.textContent) && el.textContent.trim().length <= 20) {
         // solo si va en negrita o dentro del área de info/tablas
         var fw = parseInt((window.getComputedStyle(el).fontWeight || "0"), 10);
         if (fw >= 600 || el.closest(".info, .container, main, table")) {

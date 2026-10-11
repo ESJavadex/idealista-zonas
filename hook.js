@@ -198,7 +198,8 @@
     if (!btn) {
       var caja = document.createElement("div");
       caja.style.cssText = "position:absolute;bottom:36px;left:10px;z-index:2147483646;";
-      // fila 1: botón principal on/off
+      // fila 1: botón principal on/off (¡hay que crearlo!)
+      btn = document.createElement("div");
       btn.style.cssText =
         "background:#fff;border-radius:18px;box-shadow:0 1px 4px rgba(0,0,0,.35);" +
         "padding:6px 14px;font:600 13px system-ui,sans-serif;cursor:pointer;" +
